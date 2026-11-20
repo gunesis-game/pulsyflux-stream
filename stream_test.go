@@ -8,6 +8,41 @@ import (
 	"time"
 )
 
+func TestGetReturnsRegisteredStreamAndPreservesBufferSize(t *testing.T) {
+	type storeTestEvent struct {
+		Value string
+	}
+
+	created := New[storeTestEvent](7)
+	got := Get[storeTestEvent]()
+	if got != created {
+		t.Fatal("Get did not return the stream created by New")
+	}
+	if got.bufferSize != 7 {
+		t.Fatalf("Get returned buffer size %d, want 7", got.bufferSize)
+	}
+
+	// Constructing another stream for the same event type registers that
+	// instance; Get must return it without changing its configured buffer.
+	next := New[storeTestEvent](13)
+	if got := Get[storeTestEvent](); got != next {
+		t.Fatal("Get did not return the most recently constructed stream")
+	}
+	if got := Get[storeTestEvent](); got.bufferSize != 13 {
+		t.Fatalf("Get returned buffer size %d, want 13", got.bufferSize)
+	}
+}
+
+func TestGetReturnsNilBeforeNew(t *testing.T) {
+	type neverCreatedEvent struct {
+		Value string
+	}
+
+	if got := Get[neverCreatedEvent](); got != nil {
+		t.Fatalf("Get returned %#v, want nil", got)
+	}
+}
+
 func TestPublishToMultipleSubscribers(t *testing.T) {
 	s := New[string](2)
 	defer s.Close()
