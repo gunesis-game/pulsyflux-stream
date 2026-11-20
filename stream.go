@@ -1,0 +1,175 @@
+// Package stream provides a lightweight, concurrency-safe event stream.
+package stream
+
+import (
+	"context"
+	"errors"
+	"sync"
+	"time"
+)
+
+var (
+	// ErrClosed is returned when publishing to a closed stream.
+	ErrClosed = errors.New("stream: closed")
+	// ErrSlowSubscriber is returned when a subscriber's buffer is full.
+	// Publish is atomic: no subscriber receives the event when this is returned.
+	ErrSlowSubscriber = errors.New("stream: subscriber buffer full")
+)
+
+// Event is a value published to a Stream.
+type Event[T any] struct {
+	Name string
+	Data T
+	Time time.Time
+}
+
+type subscriber[T any] struct {
+	ch   chan Event[T]
+	done chan struct{}
+	once sync.Once
+}
+
+// Subscription receives events published to a Stream.
+type Subscription[T any] struct {
+	C      <-chan Event[T]
+	stream *Stream[T]
+	id     uint64
+	sub    *subscriber[T]
+}
+
+// Events returns the read-only event channel.
+func (s *Subscription[T]) Events() <-chan Event[T] {
+	if s == nil {
+		return nil
+	}
+	return s.C
+}
+
+// Close unregisters the subscription and closes its event channel.
+// It is safe to call Close more than once.
+func (s *Subscription[T]) Close() {
+	if s == nil || s.stream == nil {
+		return
+	}
+	s.stream.unsubscribe(s.id)
+}
+
+// Stream distributes each published event to every active subscriber.
+// A full subscriber buffer rejects the entire publish instead of dropping
+// events or blocking publishers.
+type Stream[T any] struct {
+	mu         sync.RWMutex
+	nextID     uint64
+	subs       map[uint64]*subscriber[T]
+	bufferSize int
+	closed     bool
+}
+
+// New creates an event stream with bufferSize slots per subscriber.
+// bufferSize must be greater than zero.
+func New[T any](bufferSize int) *Stream[T] {
+	if bufferSize < 1 {
+		panic("stream: buffer size must be greater than zero")
+	}
+	return &Stream[T]{
+		subs:       make(map[uint64]*subscriber[T]),
+		bufferSize: bufferSize,
+	}
+}
+
+// Subscribe registers a subscriber. Its channel closes when ctx is cancelled,
+// the subscription is closed, or the stream is closed. A nil context is
+// treated as context.Background().
+func (s *Stream[T]) Subscribe(ctx context.Context) (*Subscription[T], error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	sub := &subscriber[T]{
+		ch:   make(chan Event[T], s.bufferSize),
+		done: make(chan struct{}),
+	}
+
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		close(sub.ch)
+		close(sub.done)
+		return &Subscription[T]{C: sub.ch}, ErrClosed
+	}
+	s.nextID++
+	id := s.nextID
+	s.subs[id] = sub
+	s.mu.Unlock()
+
+	result := &Subscription[T]{
+		C:      sub.ch,
+		stream: s,
+		id:     id,
+		sub:    sub,
+	}
+	go func() {
+		select {
+		case <-ctx.Done():
+			result.Close()
+		case <-sub.done:
+		}
+	}()
+	return result, nil
+}
+
+// Publish sends event to every active subscriber. A zero timestamp is filled
+// with the current time. With no subscribers, Publish succeeds.
+func (s *Stream[T]) Publish(event Event[T]) error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.closed {
+		return ErrClosed
+	}
+	if event.Time.IsZero() {
+		event.Time = time.Now()
+	}
+
+	// Preflight every buffer before sending so a slow subscriber never causes
+	// partial delivery. Only Publish writes to these channels.
+	for _, sub := range s.subs {
+		if len(sub.ch) == cap(sub.ch) {
+			return ErrSlowSubscriber
+		}
+	}
+	for _, sub := range s.subs {
+		sub.ch <- event
+	}
+	return nil
+}
+
+// Close closes the stream and all subscriber channels. It is idempotent.
+func (s *Stream[T]) Close() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.closed {
+		return
+	}
+	s.closed = true
+	for id, sub := range s.subs {
+		sub.once.Do(func() {
+			close(sub.ch)
+			close(sub.done)
+		})
+		delete(s.subs, id)
+	}
+}
+
+func (s *Stream[T]) unsubscribe(id uint64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if sub, ok := s.subs[id]; ok {
+		delete(s.subs, id)
+		sub.once.Do(func() {
+			close(sub.ch)
+			close(sub.done)
+		})
+	}
+}
