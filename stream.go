@@ -65,16 +65,20 @@ type Stream[T any] struct {
 	closed     bool
 }
 
-// New creates an event stream with bufferSize slots per subscriber.
+// New creates an event stream with bufferSize slots per subscriber and
+// registers it as the shared stream for T. A later call to Get[T] returns
+// this exact stream, retaining the buffer size supplied here.
 // bufferSize must be greater than zero.
 func New[T any](bufferSize int) *Stream[T] {
 	if bufferSize < 1 {
 		panic("stream: buffer size must be greater than zero")
 	}
-	return &Stream[T]{
+	s := &Stream[T]{
 		subs:       make(map[uint64]*subscriber[T]),
 		bufferSize: bufferSize,
 	}
+	register(s)
+	return s
 }
 
 // Subscribe registers a subscriber. Its channel closes when ctx is cancelled,
