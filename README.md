@@ -30,24 +30,36 @@ type PlayerJoined struct {
 	PlayerID string
 }
 
-func main() {
-	// New constructs and registers the shared stream for PlayerJoined.
-	created := stream.New[PlayerJoined](16)
+type PlayerLeft struct {
+	PlayerID string
+}
 
-	// Get retrieves that same stream; it does not accept or change a buffer size.
-	events := stream.Get[PlayerJoined]()
-	if events != created {
+func main() {
+	// An EventChannel groups related event streams and owns their lifecycle.
+	channel := stream.NewEventChannel()
+	defer channel.Close()
+
+	joined, err := stream.New[PlayerJoined](channel, 16)
+	if err != nil {
+		log.Fatal(err)
+	}
+	left, err := stream.New[PlayerLeft](channel, 16)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Get retrieves the stream for this event type from this channel.
+	if stream.Get[PlayerJoined](channel) != joined {
 		log.Fatal("expected the registered stream")
 	}
-	defer events.Close()
 
-	sub, err := events.Subscribe(context.Background())
+	sub, err := joined.Subscribe(context.Background())
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer sub.Close()
 
-	if err := events.Publish(stream.Event[PlayerJoined]{
+	if err := joined.Publish(stream.Event[PlayerJoined]{
 		Name: "player.joined",
 		Data: PlayerJoined{PlayerID: "player-42"},
 	}); err != nil {
@@ -56,21 +68,29 @@ func main() {
 
 	event := <-sub.Events()
 	fmt.Printf("%s: %s\n", event.Name, event.Data.PlayerID)
+
+	_ = left // This channel can own other independently typed streams too.
 }
 ```
 
-## Stream store
+## Event channels and streams
 
-- `New[T](bufferSize)` creates a stream and registers it for event type `T`.
-- `Get[T]()` retrieves the registered stream without creating a new one or
-  changing its buffer size. It returns `nil` if `New[T]` has not been called.
-- If `New[T]` is called more than once, the most recently created stream is
-  registered. Previously returned stream pointers remain independent.
-- The store is private to the package; consumers access it through `Get[T]`.
+- `NewEventChannel()` creates an isolated group of related event streams.
+- `New[T](channel, bufferSize)` creates and registers a typed stream in the
+  supplied channel. It returns an error for a nil or closed channel, an invalid
+  buffer size, or when that event type is already registered in the channel.
+- `Get[T](channel)` retrieves the stream for that event type from that channel.
+  It returns `nil` if the channel is nil or no stream has been registered.
+- A channel can own streams for many different event types. Each event type can
+  be registered only once per channel.
+- Different channels can each own a stream for the same event type; those
+  streams and their subscribers are fully independent.
+- `EventChannel.Close()` closes every stream it owns and prevents further
+  registrations. It is safe to call more than once.
 
 ## Semantics
 
-- Each subscriber receives its own copy of each published event value.
+- Each subscriber receives each published event value.
 - `Publish` is safe for concurrent callers and delivers to all current
   subscribers.
 - Each subscriber has a bounded buffer configured by `New`.
@@ -82,7 +102,8 @@ func main() {
 - `Subscription.Close`, context cancellation, and `Stream.Close` are safe to
   race. Closing a subscription unregisters it and closes its channel.
 - Publishing after stream shutdown returns `ErrClosed`.
-- `New` panics if the buffer size is less than one.
+- `Subscribe` accepts a standard Go `context.Context` for subscription
+  cancellation; the `EventChannel` is a separate grouping and lifecycle type.
 
 ## Development
 
@@ -95,5 +116,5 @@ go build ./...
 ## Releases
 
 Push a semantic version tag such as `v1.0.0`. The release workflow runs tests,
-vet, and build before creating a GitHub Release for the tag. Go modules use the
+vet, and build before creating a GitHub Release for that tag. Go modules use the
 tag as the published version; no generated binary is required for consumers.
