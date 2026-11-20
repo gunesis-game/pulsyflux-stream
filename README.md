@@ -26,8 +26,19 @@ import (
 	stream "github.com/gunesis-game/pulsyflux-stream"
 )
 
+type PlayerJoined struct {
+	PlayerID string
+}
+
 func main() {
-	events := stream.New[string](16)
+	// New constructs and registers the shared stream for PlayerJoined.
+	created := stream.New[PlayerJoined](16)
+
+	// Get retrieves that same stream; it does not accept or change a buffer size.
+	events := stream.Get[PlayerJoined]()
+	if events != created {
+		log.Fatal("expected the registered stream")
+	}
 	defer events.Close()
 
 	sub, err := events.Subscribe(context.Background())
@@ -36,17 +47,26 @@ func main() {
 	}
 	defer sub.Close()
 
-	if err := events.Publish(stream.Event[string]{
+	if err := events.Publish(stream.Event[PlayerJoined]{
 		Name: "player.joined",
-		Data: "player-42",
+		Data: PlayerJoined{PlayerID: "player-42"},
 	}); err != nil {
 		log.Fatal(err)
 	}
 
 	event := <-sub.Events()
-	fmt.Printf("%s: %s\n", event.Name, event.Data)
+	fmt.Printf("%s: %s\\n", event.Name, event.Data.PlayerID)
 }
 ```
+
+## Stream store
+
+- `New[T](bufferSize)` creates a stream and registers it for event type `T`.
+- `Get[T]()` retrieves the registered stream without creating a new one or
+  changing its buffer size. It returns `nil` if `New[T]` has not been called.
+- If `New[T]` is called more than once, the most recently created stream is
+  registered. Previously returned stream pointers remain independent.
+- The store is private to the package; consumers access it through `Get[T]`.
 
 ## Semantics
 
