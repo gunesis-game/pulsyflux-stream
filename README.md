@@ -55,7 +55,7 @@ func main() {
 	}
 
 	event := <-sub.Events()
-	fmt.Printf("%s: %s\\n", event.Name, event.Data.PlayerID)
+	fmt.Printf("%s: %s\n", event.Name, event.Data.PlayerID)
 }
 ```
 
