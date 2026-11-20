@@ -3,35 +3,77 @@ package stream
 import (
 	"reflect"
 	"sync"
+
+	"github.com/google/uuid"
 )
 
-// EventChannel owns a collection of independently typed event streams.
-// Streams registered in different EventChannels are isolated from one another.
-type EventChannel struct {
+// StreamKey identifies one typed stream within a logical event channel.
+// It is stable across processes when the same channel UUID is reused.
+type StreamKey struct {
+	ChannelID uuid.UUID
+	EventType reflect.Type
+}
+
+// streamStore is the in-memory registry implementation. Keeping it separate
+// from EventChannel means channel identity is not tied to this storage mechanism.
+type streamStore struct {
 	mu      sync.RWMutex
-	streams map[reflect.Type]any
-	closed  bool
+	streams map[StreamKey]any
 }
 
-// NewEventChannel creates an empty EventChannel.
+var defaultStore = &streamStore{
+	streams: make(map[StreamKey]any),
+}
+
+// EventChannel is a logical grouping identity for related typed streams.
+// Its UUID is independent of the in-memory registry and can be persisted by
+// applications that need to reconstruct the same logical channel later.
+type EventChannel struct {
+	ID uuid.UUID
+
+	mu     sync.RWMutex
+	closed bool
+}
+
+// NewEventChannel creates a new logical event channel with a random UUID.
 func NewEventChannel() *EventChannel {
-	return &EventChannel{
-		streams: make(map[reflect.Type]any),
-	}
+	return NewEventChannelWithID(uuid.New())
 }
 
-// register creates and stores a stream for T. The channel lock makes duplicate
-// registration and channel shutdown mutually exclusive.
+// NewEventChannelWithID reconstructs a logical event channel using an existing
+// UUID. This is useful when restoring a previously persisted channel identity.
+// uuid.Nil is rejected because it does not identify a valid channel.
+func NewEventChannelWithID(id uuid.UUID) (*EventChannel, error) {
+	if id == uuid.Nil {
+		return nil, ErrNilEventChannelID
+	}
+	return &EventChannel{ID: id}, nil
+}
+
+// register creates and stores a stream for T under the channel's stable UUID.
 func register[T any](channel *EventChannel, bufferSize int) (*Stream[T], error) {
-	typ := reflect.TypeOf((*T)(nil)).Elem()
+	if channel == nil {
+		return nil, ErrNilEventChannel
+	}
+	if channel.ID == uuid.Nil {
+		return nil, ErrNilEventChannelID
+	}
 
-	channel.mu.Lock()
-	defer channel.mu.Unlock()
-
+	channel.mu.RLock()
+	defer channel.mu.RUnlock()
 	if channel.closed {
 		return nil, ErrClosed
 	}
-	if _, exists := channel.streams[typ]; exists {
+
+	key := StreamKey{
+		ChannelID: channel.ID,
+		EventType: reflect.TypeOf((*T)(nil)).Elem(),
+	}
+
+	defaultStore.mu.Lock()
+	defer defaultStore.mu.Unlock()
+
+	if _, exists := defaultStore.streams[key]; exists {
 		return nil, ErrDuplicateStream
 	}
 
@@ -39,31 +81,40 @@ func register[T any](channel *EventChannel, bufferSize int) (*Stream[T], error) 
 		subs:       make(map[uint64]*subscriber[T]),
 		bufferSize: bufferSize,
 	}
-	channel.streams[typ] = s
+	defaultStore.streams[key] = s
 	return s, nil
 }
 
-// Get returns the stream for event type T registered in channel. It returns
-// nil if channel is nil or no stream for T has been registered.
+// Get returns the stream for event type T registered under channel's UUID.
+// It returns nil if the channel is nil, closed, or has no such stream.
 func Get[T any](channel *EventChannel) *Stream[T] {
-	if channel == nil {
+	if channel == nil || channel.ID == uuid.Nil {
 		return nil
 	}
 
-	typ := reflect.TypeOf((*T)(nil)).Elem()
-
 	channel.mu.RLock()
 	defer channel.mu.RUnlock()
+	if channel.closed {
+		return nil
+	}
 
-	s, ok := channel.streams[typ]
+	key := StreamKey{
+		ChannelID: channel.ID,
+		EventType: reflect.TypeOf((*T)(nil)).Elem(),
+	}
+
+	defaultStore.mu.RLock()
+	defer defaultStore.mu.RUnlock()
+
+	s, ok := defaultStore.streams[key]
 	if !ok {
 		return nil
 	}
 	return s.(*Stream[T])
 }
 
-// Close closes the channel and every stream it owns. It is safe to call
-// Close more than once. No additional streams can be registered afterwards.
+// Close closes every stream registered under this channel UUID. The channel
+// identity remains valid for reconstruction with NewEventChannelWithID.
 func (channel *EventChannel) Close() {
 	if channel == nil {
 		return
@@ -75,13 +126,23 @@ func (channel *EventChannel) Close() {
 		return
 	}
 	channel.closed = true
-	streams := make([]interface{ Close() }, 0, len(channel.streams))
-	for _, value := range channel.streams {
-		streams = append(streams, value.(interface{ Close() }))
-	}
 	channel.mu.Unlock()
 
-	for _, s := range streams {
+	defaultStore.removeChannel(channel.ID)
+}
+
+func (store *streamStore) removeChannel(id uuid.UUID) {
+	store.mu.Lock()
+	removed := make([]interface{ Close() }, 0)
+	for key, value := range store.streams {
+		if key.ChannelID == id {
+			removed = append(removed, value.(interface{ Close() }))
+			delete(store.streams, key)
+		}
+	}
+	store.mu.Unlock()
+
+	for _, s := range removed {
 		s.Close()
 	}
 }
