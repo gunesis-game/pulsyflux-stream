@@ -37,7 +37,7 @@ type EventChannel struct {
 
 // NewEventChannel creates a new logical event channel with a random UUID.
 func NewEventChannel() *EventChannel {
-	return NewEventChannelWithID(uuid.New())
+	return &EventChannel{ID: uuid.New()}
 }
 
 // NewEventChannelWithID reconstructs a logical event channel using an existing
