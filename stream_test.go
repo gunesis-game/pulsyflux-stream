@@ -185,7 +185,9 @@ func TestPublishToMultipleSubscribers(t *testing.T) {
 	defer b.Close()
 
 	want := Event[string]{Name: "created", Data: "item-1"}
-	if err := s.Publish(want); err != nil { t.Fatal(err) }
+	if err := s.Publish(want); err != nil {
+		t.Fatal(err)
+	}
 
 	for _, sub := range []*Subscription[string]{a, b} {
 		select {
