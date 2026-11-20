@@ -120,8 +120,11 @@ func (s *Stream[T]) Subscribe(ctx context.Context) (*Subscription[T], error) {
 // Publish sends event to every active subscriber. A zero timestamp is filled
 // with the current time. With no subscribers, Publish succeeds.
 func (s *Stream[T]) Publish(event Event[T]) error {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	// Serialize publishers: the buffer preflight and sends must be one
+	// critical section, otherwise concurrent publishers can overfill a
+	// subscriber channel after both observe spare capacity.
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	if s.closed {
 		return ErrClosed
