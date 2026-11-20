@@ -7,9 +7,9 @@ import (
 	"github.com/google/uuid"
 )
 
-// StreamKey identifies one typed stream within a logical event channel.
+// streamKey identifies one typed stream within a logical event channel.
 // It is stable across processes when the same channel UUID is reused.
-type StreamKey struct {
+type streamKey struct {
 	ChannelID uuid.UUID
 	EventType reflect.Type
 }
@@ -18,11 +18,11 @@ type StreamKey struct {
 // from EventChannel means channel identity is not tied to this storage mechanism.
 type streamStore struct {
 	mu      sync.RWMutex
-	streams map[StreamKey]any
+	streams map[streamKey]any
 }
 
 var defaultStore = &streamStore{
-	streams: make(map[StreamKey]any),
+	streams: make(map[streamKey]any),
 }
 
 // EventChannel is a logical grouping identity for related typed streams.
@@ -65,7 +65,7 @@ func register[T any](channel *EventChannel, bufferSize int) (*Stream[T], error) 
 		return nil, ErrClosed
 	}
 
-	key := StreamKey{
+	key := streamKey{
 		ChannelID: channel.ID,
 		EventType: reflect.TypeOf((*T)(nil)).Elem(),
 	}
@@ -98,7 +98,7 @@ func Get[T any](channel *EventChannel) *Stream[T] {
 		return nil
 	}
 
-	key := StreamKey{
+	key := streamKey{
 		ChannelID: channel.ID,
 		EventType: reflect.TypeOf((*T)(nil)).Elem(),
 	}
