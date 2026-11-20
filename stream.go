@@ -9,11 +9,19 @@ import (
 )
 
 var (
-	// ErrClosed is returned when publishing to a closed stream.
+	// ErrClosed is returned when publishing to a closed stream or creating a
+	// stream in a closed EventChannel.
 	ErrClosed = errors.New("stream: closed")
 	// ErrSlowSubscriber is returned when a subscriber's buffer is full.
 	// Publish is atomic: no subscriber receives the event when this is returned.
 	ErrSlowSubscriber = errors.New("stream: subscriber buffer full")
+	// ErrNilEventChannel is returned when New is called without an EventChannel.
+	ErrNilEventChannel = errors.New("stream: nil event channel")
+	// ErrInvalidBufferSize is returned when New receives a buffer size less than one.
+	ErrInvalidBufferSize = errors.New("stream: buffer size must be greater than zero")
+	// ErrDuplicateStream is returned when an EventChannel already owns a stream
+	// for the requested event type.
+	ErrDuplicateStream = errors.New("stream: event type already registered in channel")
 )
 
 // Event is a value published to a Stream.
@@ -65,27 +73,26 @@ type Stream[T any] struct {
 	closed     bool
 }
 
-// New creates an event stream with bufferSize slots per subscriber and
-// registers it as the shared stream for T. A later call to Get[T] returns
-// this exact stream, retaining the buffer size supplied here.
+// New creates a stream with bufferSize slots per subscriber and registers it
+// in channel for event type T. Each event type may be registered only once in
+// a given EventChannel. Different EventChannels own independent streams.
 // bufferSize must be greater than zero.
-func New[T any](bufferSize int) *Stream[T] {
+func New[T any](channel *EventChannel, bufferSize int) (*Stream[T], error) {
+	if channel == nil {
+		return nil, ErrNilEventChannel
+	}
 	if bufferSize < 1 {
-		panic("stream: buffer size must be greater than zero")
+		return nil, ErrInvalidBufferSize
 	}
-	s := &Stream[T]{
-		subs:       make(map[uint64]*subscriber[T]),
-		bufferSize: bufferSize,
-	}
-	register(s)
-	return s
+
+	return register[T](channel, bufferSize)
 }
 
 // Subscribe registers a subscriber. Its channel closes when ctx is cancelled,
 // the subscription is closed, or the stream is closed. A nil context is
 // treated as context.Background().
 func (s *Stream[T]) Subscribe(ctx context.Context) (*Subscription[T], error) {
-	if ctx == nil {
+	if nilContext(ctx) {
 		ctx = context.Background()
 	}
 	sub := &subscriber[T]{
@@ -119,6 +126,12 @@ func (s *Stream[T]) Subscribe(ctx context.Context) (*Subscription[T], error) {
 		}
 	}()
 	return result, nil
+}
+
+// nilContext reports whether ctx is nil without changing the public API's
+// treatment of a nil context.
+func nilContext(ctx context.Context) bool {
+	return ctx == nil
 }
 
 // Publish sends event to every active subscriber. A zero timestamp is filled
