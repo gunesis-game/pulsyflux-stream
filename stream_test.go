@@ -13,14 +13,21 @@ func TestPublishToMultipleSubscribers(t *testing.T) {
 	defer s.Close()
 
 	a, err := s.Subscribe(context.Background())
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer a.Close()
+
 	b, err := s.Subscribe(context.Background())
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer b.Close()
 
 	want := Event[string]{Name: "created", Data: "item-1"}
-	if err := s.Publish(want); err != nil { t.Fatal(err) }
+	if err := s.Publish(want); err != nil {
+		t.Fatal(err)
+	}
 
 	for _, sub := range []*Subscription[string]{a, b} {
 		select {
@@ -28,7 +35,9 @@ func TestPublishToMultipleSubscribers(t *testing.T) {
 			if got.Name != want.Name || got.Data != want.Data {
 				t.Fatalf("got %#v, want %#v", got, want)
 			}
-			if got.Time.IsZero() { t.Fatal("Publish did not set event timestamp") }
+			if got.Time.IsZero() {
+				t.Fatal("Publish did not set event timestamp")
+			}
 		case <-time.After(time.Second):
 			t.Fatal("timed out waiting for event")
 		}
@@ -38,14 +47,19 @@ func TestPublishToMultipleSubscribers(t *testing.T) {
 func TestPublishIsAtomicWhenSubscriberIsFull(t *testing.T) {
 	s := New[int](1)
 	defer s.Close()
+
 	fast, _ := s.Subscribe(context.Background())
 	defer fast.Close()
+
 	slow, _ := s.Subscribe(context.Background())
 	defer slow.Close()
 
-	if err := s.Publish(Event[int]{Data: 1}); err != nil { t.Fatal(err) }
+	if err := s.Publish(Event[int]{Data: 1}); err != nil {
+		t.Fatal(err)
+	}
 	// Both buffers are now full; consume only from fast.
 	<-fast.Events()
+
 	if err := s.Publish(Event[int]{Data: 2}); !errors.Is(err, ErrSlowSubscriber) {
 		t.Fatalf("got %v, want ErrSlowSubscriber", err)
 	}
@@ -54,6 +68,7 @@ func TestPublishIsAtomicWhenSubscriberIsFull(t *testing.T) {
 		t.Fatalf("partial delivery occurred: fast subscriber unexpectedly got %d", got.Data)
 	default:
 	}
+
 	if got := <-slow.Events(); got.Data != 1 {
 		t.Fatalf("slow subscriber got unexpected event: %d", got.Data)
 	}
@@ -62,45 +77,67 @@ func TestPublishIsAtomicWhenSubscriberIsFull(t *testing.T) {
 func TestContextCancellationUnsubscribes(t *testing.T) {
 	s := New[int](1)
 	defer s.Close()
+
 	ctx, cancel := context.WithCancel(context.Background())
 	sub, err := s.Subscribe(ctx)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	cancel()
 
 	select {
 	case _, ok := <-sub.Events():
-		if ok { t.Fatal("expected subscription channel to close") }
+		if ok {
+			t.Fatal("expected subscription channel to close")
+		}
 	case <-time.After(time.Second):
 		t.Fatal("subscription was not closed after context cancellation")
 	}
-	if err := s.Publish(Event[int]{Data: 1}); err != nil { t.Fatal(err) }
+
+	if err := s.Publish(Event[int]{Data: 1}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestClose(t *testing.T) {
 	s := New[int](1)
 	sub, err := s.Subscribe(context.Background())
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	s.Close()
 	s.Close()
+
 	if err := s.Publish(Event[int]{}); !errors.Is(err, ErrClosed) {
 		t.Fatalf("got %v, want ErrClosed", err)
 	}
-	if _, ok := <-sub.Events(); ok { t.Fatal("expected closed channel") }
+	if _, ok := <-sub.Events(); ok {
+		t.Fatal("expected closed channel")
+	}
 }
 
 func TestSubscribeAfterClose(t *testing.T) {
 	s := New[int](1)
 	s.Close()
+
 	sub, err := s.Subscribe(context.Background())
-	if !errors.Is(err, ErrClosed) { t.Fatalf("got %v, want ErrClosed", err) }
-	if _, ok := <-sub.Events(); ok { t.Fatal("expected closed channel") }
+	if !errors.Is(err, ErrClosed) {
+		t.Fatalf("got %v, want ErrClosed", err)
+	}
+	if _, ok := <-sub.Events(); ok {
+		t.Fatal("expected closed channel")
+	}
 }
 
 func TestConcurrentPublishAndSubscribe(t *testing.T) {
 	s := New[int](64)
 	defer s.Close()
+
 	sub, err := s.Subscribe(context.Background())
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer sub.Close()
 
 	var wg sync.WaitGroup
