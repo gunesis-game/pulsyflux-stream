@@ -1,7 +1,6 @@
 # pulsyflux-stream
 
-A small, generic, concurrency-safe event stream for Go. The package has no
-third-party dependencies.
+A small, generic, concurrency-safe event stream for Go.
 
 ## Requirements
 
@@ -35,7 +34,7 @@ type PlayerLeft struct {
 }
 
 func main() {
-	// An EventChannel groups related event streams and owns their lifecycle.
+	// An EventChannel identifies a logical group of related event streams.
 	channel := stream.NewEventChannel()
 	defer channel.Close()
 
@@ -75,7 +74,8 @@ func main() {
 
 ## Event channels and streams
 
-- `NewEventChannel()` creates an isolated group of related event streams.
+- `NewEventChannel()` creates a logical event channel with a randomly generated UUID.
+- `NewEventChannelWithID(id)` reconstructs a channel using an existing non-zero UUID. Persist this UUID if the same logical channel must be identified again later (for example, by a future replay-capable store).
 - `New[T](channel, bufferSize)` creates and registers a typed stream in the
   supplied channel. It returns an error for a nil or closed channel, an invalid
   buffer size, or when that event type is already registered in the channel.
@@ -83,10 +83,9 @@ func main() {
   It returns `nil` if the channel is nil or no stream has been registered.
 - A channel can own streams for many different event types. Each event type can
   be registered only once per channel.
-- Different channels can each own a stream for the same event type; those
-  streams and their subscribers are fully independent.
-- `EventChannel.Close()` closes every stream it owns and prevents further
-  registrations. It is safe to call more than once.
+- The in-memory registry keys streams by the composite `StreamKey{ChannelID, EventType}`. Different channel UUIDs can register the same event type without sharing a stream.
+- A channel UUID is a logical identity, not a storage location. The current registry is in-memory; a future persistent or distributed backend can use the same UUID without changing the channel identity model.
+- `EventChannel.Close()` closes every stream registered under that UUID and prevents further registrations through that channel instance. It is safe to call more than once. A new channel instance can be reconstructed with the same UUID after closure.
 
 ## Semantics
 
