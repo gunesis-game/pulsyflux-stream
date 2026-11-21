@@ -204,3 +204,40 @@ If implementation is mid-flight, record the exact stopping point, uncommitted or
 - If a change outside `storage_disk.go` materially changes the storage contract or its assumptions (for example redaction-before-persistence, schema identity, or replay integration), assess whether the architecture guide needs a corresponding update and make it when relevant.
 - Do not edit `docs/storage_disk.md` for unrelated changes. Preserve the repository's CI policy: Markdown-only changes do not trigger CI; when a storage implementation change requires both Go and Markdown updates, the Go changes must trigger the normal CI checks.
 - In handoffs and completion summaries, mention whether the storage architecture guide was updated or reviewed. Never leave a known mismatch between the implementation and its architecture diagrams for a later session to discover.
+
+## Session handoff — recovery review and CI formatting gap (2026-11-21)
+
+### Authoritative repository and verification state
+- Repository: `gunesis-game/pulsyflux-stream`; continue directly on `main`.
+- Current `main` HEAD: `7c6336ba24b30b4a87c9876895727973422c32a0` (`docs: require post-CI analysis and durable session handoffs`). This is a Markdown-only steering update and, per repository workflow policy, does not trigger CI.
+- Latest relevant completed CI run: [44895528595](https://github.com/gunesis-game/pulsyflux-stream/actions/runs/44895528595), run #148, for exact code commit `ca5945b4426d5bccc402679b8d9ea030ddff8f09`. Run completed successfully. Job `Test and build` passed formatting step(s), `go test -race -cover ./...` (81.9% statement coverage), `go vet ./...`, and `go build ./...`.
+- The preceding run [44895519915](https://github.com/gunesis-game/pulsyflux-stream/actions/runs/44895519915) failed because `storage_disk_test.go` lacked the `fmt` import. Commit `ca5945b` added it; run 44895528595 verified the correction.
+- No CI run is expected for the current documentation-only HEAD. Do not describe the current docs commit as independently CI-tested.
+
+### Completed recovery-path review
+- Reviewed current `storage_disk.go`, `storage_disk_test.go`, and `docs/storage_disk.md`.
+- The earlier concern that writer startup recovery accumulated every decoded record is already resolved in the implementation: `scanDiskRecords` processes one frame at a time and retains only the last sequence, valid byte offset, and incomplete-tail state. Per-record temporary memory is bounded by the maximum frame size; memory does not grow with record count.
+- `TestScanDiskRecordsTracksSequenceWithBoundedState` scans 4,096 records and verifies the final sequence and offset.
+- Recovery tests cover sequence regression, active-final-segment incomplete-tail truncation, rejection of incomplete tails in non-active segments, and rejection of complete corruption in the active segment.
+- Reader tests cover incomplete tails, complete corruption, sequence regression across segments, and fail-closed behavior on corruption in a middle segment.
+- `docs/storage_disk.md` already describes streaming recovery, its memory profile, and the recovery/reader distinction. No source or architecture-document change was needed in this review.
+- Conclusion: do not rewrite the recovery scanner; the prior memory concern is resolved. Do not start an index without a concrete Find/Seek requirement or agreed lookup contract.
+
+### Newly discovered confirmed CI gap — formatting check mutates the checkout
+- Current `.github/workflows/ci.yml` runs `gofmt -w $(find . -name '*.go')` before running `gofmt -l .`.
+- This means CI formats the runner's working tree before checking it. The formatting verification can therefore pass even when the committed Go files are not gofmt-clean. Tests, vet, and build then run against the runner's formatted working tree rather than necessarily the exact committed Go source.
+- This undermines the intended formatting gate and must be corrected. Do not treat the existing formatting step as proof that committed files were already formatted.
+- The repository currently has ten tracked Go files: `channel.go`, `event.go`, `event_test.go`, `schema.go`, `schema_test.go`, `storage_disk.go`, `storage_disk_test.go`, `store.go`, `stream.go`, and `stream_test.go`.
+
+### Next task — make formatting verification non-mutating
+1. Obtain a working copy of all ten tracked Go files and run `gofmt` on them locally or in a controlled formatting step; commit the formatted Go source so the repository itself is clean.
+2. Change `.github/workflows/ci.yml` to remove the mutating `gofmt -w` step. Keep a non-mutating check using `gofmt -l` that prints every offending filename and fails if the list is non-empty.
+3. Ensure formatting verification runs against the exact committed tree before tests, vet, and build. Do not allow CI to silently repair files before checking them.
+4. Commit the Go formatting and workflow correction directly to `main`; wait for the push-triggered CI run and verify its exact `head_sha`, each job step, and logs.
+5. Update this handoff after the run, recording the exact result. If formatting fails, fix the listed files and repeat the commit/CI verification sequence.
+6. Preserve the workflow's existing Markdown path-ignore behavior and manual dispatch. Do not weaken race tests, vet, or build checks.
+
+### Other known constraints and deferred work
+- Parent-directory durability after segment creation remains an acknowledged design limitation. Do not add directory syncing until supported operating systems and the required crash-durability contract are explicitly defined.
+- No persistent index or public storage API is implemented. Keep indexing deferred until a concrete lookup use case and contract justify it.
+- No local test execution was performed during this review. The latest confirmed Go verification is the GitHub Actions run listed above.
