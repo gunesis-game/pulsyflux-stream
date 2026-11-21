@@ -4,7 +4,7 @@
 Provide a small, concurrency-safe, typed Go event stream, with a clear path toward policy-controlled event persistence and replay.
 
 ## Core architecture
-- **Event owns event semantics.** Typed payload (T), name/time metadata, redaction policy, payload validation, and private serialization/deserialization.
+- **Event owns event semantics.** Typed payload (T), type-derived identity, internal timestamp, redaction policy, payload validation, and private serialization/deserialization.
 - **Stream owns delivery.** Publish the full in-memory event to subscribers. Streaming does not redact data.
 - **Store will own persistence orchestration.** Once a persistence backend exists, the store calls the event's internal serialization method before handing bytes to persistence. It does not inspect payload fields or implement redaction.
 - **Persistence owns bytes.** Backends should not know Go generic types, event payload structures, or redaction rules.
@@ -26,7 +26,7 @@ Public API is intended to include:
 - (*Event[T]).SetData(T) error
 - (*Event[T]).Data() T
 
-Serialization/deserialization stay package-private (serialize and deserialize[T]) and are intended for Store persistence integration. The stored envelope includes name, data, and time; policy is not stored. Loading requires the caller/store to supply the policy compatible with payload type T.
+Serialization/deserialization stay package-private (serialize and deserialize[T]) and are intended for Store persistence integration. The stored envelope includes type, data, and time; policy is not stored. Loading requires the caller/store to supply the policy compatible with payload type T.
 
 ## Implementation status\n- The initial policy-aware Event API and private serialization/deserialization are being implemented.\n- The current store.go remains only an in-memory stream registry; durable Save/Load is not implemented yet.\n\n## Compatibility and boundaries
 - Making Event.Data private and adding policy-aware construction/setters is an intentional API change from the original struct-literal event.
