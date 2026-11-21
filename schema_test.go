@@ -26,7 +26,7 @@ func TestSchemaFingerprintChangesWithStructure(t *testing.T) {
 		B string `json:"b"`
 	}
 
-	if schemaFingerprint(reflect.TypeOf(original{}), schemaData) == schemaFingerprint(reflect.TypeOf(changed{}), schemaData) {
+	if hashSchema(canonicalTypeDescriptor(reflect.TypeOf(original{}))) == hashSchema(canonicalTypeDescriptor(reflect.TypeOf(changed{}))) {
 		t.Fatal("structural change should produce a different fingerprint")
 	}
 }
@@ -39,7 +39,7 @@ func TestSchemaFingerprintIncludesJSONFieldName(t *testing.T) {
 		A string `json:"second"`
 	}
 
-	if schemaFingerprint(reflect.TypeOf(first{}), schemaData) == schemaFingerprint(reflect.TypeOf(second{}), schemaData) {
+	if hashSchema(canonicalTypeDescriptor(reflect.TypeOf(first{}))) == hashSchema(canonicalTypeDescriptor(reflect.TypeOf(second{}))) {
 		t.Fatal("JSON field-name change should produce a different fingerprint")
 	}
 }
@@ -54,7 +54,7 @@ func TestSchemaFingerprintNormalizesFieldDeclarationOrder(t *testing.T) {
 		A int `json:"a"`
 	}
 
-	if schemaFingerprint(reflect.TypeOf(first{}), schemaData) != schemaFingerprint(reflect.TypeOf(second{}), schemaData) {
+	if hashSchema(canonicalTypeDescriptor(reflect.TypeOf(first{}))) != hashSchema(canonicalTypeDescriptor(reflect.TypeOf(second{}))) {
 		t.Fatal("field declaration order should not change the structural fingerprint")
 	}
 }
@@ -65,10 +65,11 @@ func TestSchemaFingerprintLayersAreDistinct(t *testing.T) {
 	}
 	typ := reflect.TypeOf(payload{})
 
-	data := schemaFingerprint(typ, schemaData)
-	event := schemaFingerprint(typ, schemaEvent)
-	stream := schemaFingerprint(typ, schemaStream)
-	channel := schemaFingerprint(typ, schemaChannel)
+	descriptor := canonicalTypeDescriptor(typ)
+	data := composeSchemaIdentity(schemaData, descriptor, nil).Base
+	event := composeSchemaIdentity(schemaEvent, descriptor, nil).Base
+	stream := composeSchemaIdentity(schemaStream, descriptor, nil).Base
+	channel := composeSchemaIdentity(schemaChannel, descriptor, nil).Base
 
 	if data == event || event == stream || stream == channel {
 		t.Fatal("schema layers should have distinct fingerprints")
@@ -79,8 +80,8 @@ func TestSchemaFingerprintHandlesRecursiveTypes(t *testing.T) {
 	type node struct {
 		N *node `json:"n,omitempty"`
 	}
-	first := schemaFingerprint(reflect.TypeOf(node{}), schemaData)
-	second := schemaFingerprint(reflect.TypeOf(node{}), schemaData)
+	first := hashSchema(canonicalTypeDescriptor(reflect.TypeOf(node{})))
+	second := hashSchema(canonicalTypeDescriptor(reflect.TypeOf(node{})))
 	if first != second {
 		t.Fatal("recursive type fingerprint is not deterministic")
 	}

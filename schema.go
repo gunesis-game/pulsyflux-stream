@@ -154,28 +154,6 @@ const (
 	schemaChannel schemaLayer = "channel"
 )
 
-// schemaFingerprint returns a deterministic structural fingerprint for a type at
-// the requested logical layer. It is private storage metadata, not an instance ID.
-func schemaFingerprint(t reflect.Type, layer schemaLayer) string {
-	descriptor := canonicalTypeDescriptor(t)
-	dataFingerprint := hashSchema(schemaFingerprintVersion + ":data:" + descriptor)
-	switch layer {
-	case schemaData:
-		return dataFingerprint
-	case schemaEvent:
-		return hashSchema(schemaFingerprintVersion + ":event:" + dataFingerprint)
-	case schemaStream:
-		eventFingerprint := hashSchema(schemaFingerprintVersion + ":event:" + dataFingerprint)
-		return hashSchema(schemaFingerprintVersion + ":stream:" + eventFingerprint)
-	case schemaChannel:
-		eventFingerprint := hashSchema(schemaFingerprintVersion + ":event:" + dataFingerprint)
-		streamFingerprint := hashSchema(schemaFingerprintVersion + ":stream:" + eventFingerprint)
-		return hashSchema(schemaFingerprintVersion + ":channel:" + streamFingerprint)
-	default:
-		return hashSchema(schemaFingerprintVersion + ":unknown-layer:" + string(layer) + ":" + dataFingerprint)
-	}
-}
-
 // schemaIdentity is the shared, private identity contract extended by each
 // logical schema layer. Base identifies the unredacted definition; Effective
 // identifies that definition after redaction and dependency policies apply.
