@@ -221,7 +221,7 @@ flowchart TD
     Advance --> Sync{"syncEachAppend enabled?"}
     Sync -- No --> Return["Return sequence + EventID"]
     Sync -- Yes --> FlushSync["Flush buffer, then file.Sync()"]
-    FlushSync --> SyncOK{"Flush and sync succeeded?"}
+    FlushSync --> SyncOK{"Flush and file sync succeeded?"}
     SyncOK -- No --> StickyFail
     SyncOK -- Yes --> Return
 ```
@@ -234,7 +234,7 @@ flowchart TD
 - Rotation happens only when the current segment is non-empty and the next frame would exceed `maxBytes`.
 - Therefore, a single frame larger than the configured segment threshold can occupy an otherwise-empty segment. The record-body limit still applies.
 - The configured default segment threshold is 64 MiB when `MaxSegmentBytes` is not positive.
-- The default is buffered writing. `SyncEachAppend` adds a flush and filesystem sync after each append.
+- The default is buffered writing. `SyncEachAppend` adds a flush and file sync after each append. It also requires durable segment-directory entries: Linux syncs the parent directory after segment creation (and when opening an existing durable writer); Windows returns `errDirectorySyncUnsupported` from `openDiskWriter` before accepting writes. It never silently degrades to file-only syncing.
 
 ### 5.3 What rotation actually does
 
@@ -245,6 +245,7 @@ sequenceDiagram
     participant B as bufio.Writer
     participant F1 as Current segment
     participant F2 as New segment
+    participant D as Segment directory
 
     A->>W: frame would exceed maxBytes
     W->>B: Flush()
@@ -252,6 +253,7 @@ sequenceDiagram
     W->>F1: Close()
     W->>W: segment++
     W->>F2: Create new segment (exclusive)
+    W->>D: Sync directory entry (Linux, SyncEachAppend)
     W-->>A: rotation complete
     A->>B: Write(new frame)
 ```
@@ -264,7 +266,7 @@ The writer distinguishes buffering from filesystem synchronization:
 
 - **Append:** writes to the `bufio.Writer`; without `SyncEachAppend`, this may not immediately reach the OS file.
 - **Flush:** drains the Go buffer to the file.
-- **Sync:** flushes first, then calls `os.File.Sync()`.
+- **Sync:** flushes first, then calls `os.File.Sync()`. Segment-directory entries are synced at creation/reopen when `SyncEachAppend` is enabled.
 - **Close:** flushes if there is no prior sticky failure, closes the active file, stores the joined result, and returns that same result on every later `Close` call.
 
 Errors from append I/O, explicit `Flush`, explicit `Sync`, and append-time rotation are made sticky through `failLocked`. A flush failure during `Close` is also retained in the close result. Subsequent appends return the stored failure instead of pretending the writer can continue; repeated `Close` calls return the original close result.
@@ -286,12 +288,12 @@ stateDiagram-v2
 | Operation | Buffer flush | File sync | Failure behavior |
 |---|---:|---:|---|
 | `Append` (default) | No | No | A write error becomes sticky |
-| `Append` with `SyncEachAppend` | Yes | Yes | Flush/sync error becomes sticky |
+| `Append` with `SyncEachAppend` (Linux) | Yes | Yes | File sync plus prior directory-entry sync; I/O errors become sticky |
 | `Flush` | Yes | No | Error becomes sticky |
-| `Sync` | Yes | Yes | Error becomes sticky |
+| `Sync` | Yes | Yes | File sync; error becomes sticky |
 | `Close` | Yes, unless already failed | No explicit sync | Returns and retains joined failure/flush/close errors; repeated calls return the same result |
 
-A successful `Flush` is not the same guarantee as a successful `Sync`: flush drains the userspace buffer, while sync requests filesystem persistence.
+A successful `Flush` is not the same guarantee as a successful `Sync`: flush drains the userspace buffer, while sync requests filesystem persistence. On Linux, the strict `SyncEachAppend` contract additionally syncs the segment directory after creating a segment, so a successful append does not rely on an unsynced new segment name. The storage directory itself must already be durably provisioned. On Windows, no supported and verified directory-entry flush is implemented; enabling `SyncEachAppend` therefore fails at writer open with `errDirectorySyncUnsupported`, including when the directory already contains segments. The Windows behavior is intentionally fail-closed, not a weaker durability mode.
 
 ## 7. Reader lifecycle and fail-closed behavior
 
@@ -385,3 +387,15 @@ These are the rules that the implementation and its tests are protecting.
 | `diskReader` / `openDiskReader` | Sequential multi-segment reader |
 | `readDiskRecord` | One-frame reader |
 | `failSegment` | Reader terminal-error cleanup |
+
+
+## 12. Cross-platform durability contract
+
+The disk backend supports Linux and Windows. `SyncEachAppend` has a strict contract: a successful append must have flushed and synced the record file, and the directory entry for the active segment must have been durably synced before that append can be acknowledged.
+
+- **Linux:** `syncSegmentDirectory` opens the segment directory and calls `os.File.Sync`. It runs after each newly created segment and when reopening an existing writer with `SyncEachAppend` enabled. Directory-sync errors fail writer creation or the append that triggered rotation; append-time failures are sticky.
+- **Windows:** `checkDirectorySyncSupport` returns `errDirectorySyncUnsupported`. `openDiskWriter` rejects `SyncEachAppend` before creating/opening segment files. This avoids claiming durability that the implementation cannot establish. Ordinary buffered writing and explicit file-only `Sync` remain separate from the strict `SyncEachAppend` guarantee.
+- **Other operating systems:** strict `SyncEachAppend` is also rejected unless a platform implementation is added and tested.
+- **Provisioning boundary:** the storage directory must itself be durably provisioned by the caller. The Linux helper persists segment entries within that directory; it does not recursively sync newly created ancestor directories.
+
+The platform-specific implementation lives in `storage_disk_sync_linux.go`, `storage_disk_sync_windows.go`, and the unsupported-platform fallback. CI runs formatting, tests, vet, and build on Linux and Windows; the race detector runs on Linux.
