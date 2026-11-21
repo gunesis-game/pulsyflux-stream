@@ -16,9 +16,13 @@ import (
 	"github.com/google/uuid"
 )
 
+func testFingerprints() schemaFingerprints {
+	return schemaFingerprints{EventBase:"event-base", EventEffective:"event-effective", StreamBase:"stream-base", StreamEffective:"stream-effective", ChannelBase:"channel-base", ChannelEffective:"channel-effective"}
+}
+
 func testDiskRecord(seq uint64) diskRecord {
 	return diskRecord{Version: recordVersion, EventID: uuid.New(), StreamID: uuid.New(), ChannelID: uuid.New(), Sequence: seq,
-		Timestamp: time.Unix(1700000000, int64(seq)).UnixNano(), SchemaFingerprint: "schema", Type: "event", Payload: json.RawMessage(`{"x":1}`)}
+		Timestamp: time.Unix(1700000000, int64(seq)).UnixNano(), EventBaseFingerprint: "event-base", EventEffectiveFingerprint: "event-effective", StreamBaseFingerprint: "stream-base", StreamEffectiveFingerprint: "stream-effective", ChannelBaseFingerprint: "channel-base", ChannelEffectiveFingerprint: "channel-effective", Payload: json.RawMessage(`{"x":1}`)}
 }
 
 func TestDiskRecordSizePreflightMatchesJSONEncoding(t *testing.T) {
@@ -70,8 +74,8 @@ func TestDiskRecordSizePreflightRejectsOversizedAndInvalidPayloads(t *testing.T)
 
 func TestDiskRecordSizePreflightCountsEscapingAndCompaction(t *testing.T) {
 	record := testDiskRecord(1)
-	record.SchemaFingerprint = "<schema>&"
-	record.Type = "type\nwith\tcontrols\u2028"
+	record.EventBaseFingerprint = "<schema>&"
+	record.EventEffectiveFingerprint = "effective\nwith\tcontrols\u2028"
 	record.Payload = json.RawMessage("  { \"value\" : \"<>&\" }  \n")
 	want, err := json.Marshal(record)
 	if err != nil {
@@ -199,7 +203,7 @@ func TestDiskWriterRecoversAndReaderStreamsLargeSingleSegment(t *testing.T) {
 	if writer.nextSequence != count {
 		t.Fatalf("recovered sequence=%d want=%d", writer.nextSequence, count)
 	}
-	next, _, err := writer.Append(uuid.New(), uuid.New(), "schema", "event", time.Now(), []byte(`{"after":"recovery"}`))
+	next, _, err := writer.Append(uuid.New(), uuid.New(), testFingerprints(), time.Now(), []byte(`{"after":"recovery"}`))
 	if err != nil {
 		t.Fatalf("append after recovery: %v", err)
 	}
@@ -262,11 +266,11 @@ func TestDiskWriterAppendFailureIsSticky(t *testing.T) {
 	injected := errors.New("injected disk write failure")
 	writer.buf = bufio.NewWriterSize(failingDiskOutput{err: injected}, 1)
 
-	sequence, _, firstErr := writer.Append(uuid.New(), uuid.New(), "schema", "event", time.Now(), []byte(`{"v":1}`))
+	sequence, _, firstErr := writer.Append(uuid.New(), uuid.New(), testFingerprints(), time.Now(), []byte(`{"v":1}`))
 	if sequence != 0 || !errors.Is(firstErr, injected) {
 		t.Fatalf("first append: sequence=%d err=%v", sequence, firstErr)
 	}
-	sequence, _, secondErr := writer.Append(uuid.New(), uuid.New(), "schema", "event", time.Now(), []byte(`{"v":2}`))
+	sequence, _, secondErr := writer.Append(uuid.New(), uuid.New(), testFingerprints(), time.Now(), []byte(`{"v":2}`))
 	if sequence != 0 || secondErr != firstErr {
 		t.Fatalf("second append did not return sticky failure: sequence=%d first=%v second=%v", sequence, firstErr, secondErr)
 	}
@@ -299,7 +303,7 @@ func TestDiskWriterFlushAndSyncFailuresAreSticky(t *testing.T) {
 			if !errors.Is(firstErr, injected) {
 				t.Fatalf("%s error = %v, want injected failure", name, firstErr)
 			}
-			_, _, appendErr := writer.Append(uuid.New(), uuid.New(), "schema", "event", time.Now(), []byte(`{"v":1}`))
+			_, _, appendErr := writer.Append(uuid.New(), uuid.New(), testFingerprints(), time.Now(), []byte(`{"v":1}`))
 			if appendErr != firstErr {
 				t.Fatalf("append did not return sticky error: first=%v append=%v", firstErr, appendErr)
 			}
@@ -322,11 +326,11 @@ func TestDiskWriterRotationFlushFailureIsSticky(t *testing.T) {
 	}
 	writer.size = writer.maxBytes
 
-	sequence, _, firstErr := writer.Append(uuid.New(), uuid.New(), "schema", "event", time.Now(), []byte(`{"v":1}`))
+	sequence, _, firstErr := writer.Append(uuid.New(), uuid.New(), testFingerprints(), time.Now(), []byte(`{"v":1}`))
 	if sequence != 0 || !errors.Is(firstErr, injected) {
 		t.Fatalf("rotation append: sequence=%d err=%v", sequence, firstErr)
 	}
-	_, _, secondErr := writer.Append(uuid.New(), uuid.New(), "schema", "event", time.Now(), []byte(`{"v":2}`))
+	_, _, secondErr := writer.Append(uuid.New(), uuid.New(), testFingerprints(), time.Now(), []byte(`{"v":2}`))
 	if secondErr != firstErr {
 		t.Fatalf("append did not return sticky rotation error: first=%v second=%v", firstErr, secondErr)
 	}
@@ -364,7 +368,7 @@ func TestDiskWriterRecoversAfterRotationSegmentCreationFailure(t *testing.T) {
 	}
 
 	channelID, streamID := uuid.New(), uuid.New()
-	firstSequence, _, err := writer.Append(channelID, streamID, "schema", "event", time.Now(), []byte(`{"v":1}`))
+	firstSequence, _, err := writer.Append(channelID, streamID, testFingerprints(), time.Now(), []byte(`{"v":1}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -379,7 +383,7 @@ func TestDiskWriterRecoversAfterRotationSegmentCreationFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	writer.size = writer.maxBytes
-	if _, _, err := writer.Append(channelID, streamID, "schema", "event", time.Now(), []byte(`{"v":2}`)); err == nil {
+	if _, _, err := writer.Append(channelID, streamID, testFingerprints(), time.Now(), []byte(`{"v":2}`)); err == nil {
 		t.Fatal("append succeeded despite next-segment creation failure")
 	}
 	if writer.file != nil || writer.buf != nil {
@@ -396,7 +400,7 @@ func TestDiskWriterRecoversAfterRotationSegmentCreationFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reopen after clearing segment path: %v", err)
 	}
-	secondSequence, _, err := writer.Append(channelID, streamID, "schema", "event", time.Now(), []byte(`{"v":2}`))
+	secondSequence, _, err := writer.Append(channelID, streamID, testFingerprints(), time.Now(), []byte(`{"v":2}`))
 	if err != nil {
 		t.Fatalf("append after recovery: %v", err)
 	}
@@ -456,7 +460,7 @@ func TestDiskWriterExplicitSyncFlushesFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sequence, _, err := writer.Append(uuid.New(), uuid.New(), "schema", "event", time.Now(), []byte(`{"v":1}`))
+	sequence, _, err := writer.Append(uuid.New(), uuid.New(), testFingerprints(), time.Now(), []byte(`{"v":1}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -501,7 +505,7 @@ func TestDiskWriterSequenceTailRecoveryAndRollover(t *testing.T) {
 	}
 	ch, st := uuid.New(), uuid.New()
 	for i := 1; i <= 4; i++ {
-		seq, _, err := w.Append(ch, st, "schema", "event", time.Now(), []byte(`{"payload":"large enough to cause a segment rollover"}`))
+		seq, _, err := w.Append(ch, st, testFingerprints(), time.Now(), []byte(`{"payload":"large enough to cause a segment rollover"}`))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -536,7 +540,7 @@ func TestDiskWriterSequenceTailRecoveryAndRollover(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	next, _, err := w.Append(ch, st, "schema", "event", time.Now(), []byte(`{"payload":2}`))
+	next, _, err := w.Append(ch, st, testFingerprints(), time.Now(), []byte(`{"payload":2}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -567,7 +571,7 @@ func TestDiskWriterRecoversSequenceAcrossEmptySegment(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer w.Close()
-	seq, _, err := w.Append(uuid.New(), uuid.New(), "schema", "event", time.Now(), []byte(`{"v":1}`))
+	seq, _, err := w.Append(uuid.New(), uuid.New(), testFingerprints(), time.Now(), []byte(`{"v":1}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -584,7 +588,7 @@ func TestDiskReaderSequentialAcrossSegments(t *testing.T) {
 	}
 	ch, st := uuid.New(), uuid.New()
 	for i := 1; i <= 4; i++ {
-		seq, _, err := w.Append(ch, st, "schema", "event", time.Now(), []byte(`{"payload":"large enough to cause a segment rollover"}`))
+		seq, _, err := w.Append(ch, st, testFingerprints(), time.Now(), []byte(`{"payload":"large enough to cause a segment rollover"}`))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -796,7 +800,7 @@ func TestDiskWriterReopenAcrossSegmentsReaderContinuity(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := 1; i <= 4; i++ {
-		sequence, _, err := writer.Append(channelID, streamID, "schema", "event", time.Now(),
+		sequence, _, err := writer.Append(channelID, streamID, testFingerprints(), time.Now(),
 			[]byte(`{"payload":"large enough to force segment rotation"}`))
 		if err != nil {
 			t.Fatalf("initial append %d: %v", i, err)
@@ -814,7 +818,7 @@ func TestDiskWriterReopenAcrossSegmentsReaderContinuity(t *testing.T) {
 		t.Fatalf("reopen writer: %v", err)
 	}
 	for i := 5; i <= 6; i++ {
-		sequence, _, err := writer.Append(channelID, streamID, "schema", "event", time.Now(),
+		sequence, _, err := writer.Append(channelID, streamID, testFingerprints(), time.Now(),
 			[]byte(`{"payload":"after reopen"}`))
 		if err != nil {
 			t.Fatalf("append after reopen %d: %v", i, err)
@@ -897,7 +901,7 @@ func TestDiskWriterTruncatesIncompleteActiveTailAtLastValidFrame(t *testing.T) {
 		t.Fatalf("recovered segment size=%d want=%d", info.Size(), len(valid))
 	}
 
-	sequence, _, err := writer.Append(uuid.New(), uuid.New(), "schema", "event", time.Now(), []byte(`{"v":2}`))
+	sequence, _, err := writer.Append(uuid.New(), uuid.New(), testFingerprints(), time.Now(), []byte(`{"v":2}`))
 	if err != nil {
 		t.Fatal(err)
 	}
