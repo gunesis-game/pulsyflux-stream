@@ -175,7 +175,7 @@ func schemaJSONFieldName(field reflect.StructField) string {
 // contract. Higher layers compose this identity with their own descriptors.
 func eventSchemaIdentity[T any](policy RedactionPolicy) (schemaIdentity, []string, error) {
 	t := reflect.TypeOf((*T)(nil)).Elem()
-	paths, err := normalizeSchemaRedactionPaths(t, policy.exclude)
+	paths, err := normalizeEventRedactionPaths(t, policy.exclude)
 	if err != nil {
 		return schemaIdentity{}, nil, err
 	}
@@ -229,7 +229,7 @@ func encodeSchema[T any](data T, policy RedactionPolicy) ([]byte, schemaIdentity
 	if err != nil {
 		return nil, schemaIdentity{}, fmt.Errorf("marshal schema data: %w", err)
 	}
-	redacted, err := redactSchemaJSON(raw, paths)
+	redacted, err := redactEventJSON(raw, paths)
 	if err != nil {
 		return nil, schemaIdentity{}, fmt.Errorf("redact schema data: %w", err)
 	}
@@ -253,7 +253,7 @@ func decodeSchema[T any](raw []byte, expected schemaIdentity, policy RedactionPo
 	if err := json.Unmarshal(raw, &data); err != nil {
 		return data, fmt.Errorf("decode schema data: %w", err)
 	}
-	if err := validateSchemaData(data); err != nil {
+	if err := validateEventData(data); err != nil {
 		return data, fmt.Errorf("validate decoded schema data: %w", err)
 	}
 	return data, nil
