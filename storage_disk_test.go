@@ -17,7 +17,7 @@ import (
 )
 
 func testFingerprints() schemaFingerprints {
-	return schemaFingerprints{EventBase:"event-base", EventEffective:"event-effective", StreamBase:"stream-base", StreamEffective:"stream-effective", ChannelBase:"channel-base", ChannelEffective:"channel-effective"}
+	return schemaFingerprints{EventBase: "event-base", EventEffective: "event-effective", StreamBase: "stream-base", StreamEffective: "stream-effective", ChannelBase: "channel-base", ChannelEffective: "channel-effective"}
 }
 
 func testDiskRecord(seq uint64) diskRecord {
