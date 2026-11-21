@@ -175,7 +175,7 @@ func TestEventDeserializeRejectsSchemaFingerprintMismatch(t *testing.T) {
 	if err := event.SetData(payload{Value: "ok"}); err != nil {
 		t.Fatal(err)
 	}
-	raw, fingerprint, _, err := encodeEventSchema(&event)
+	raw, fingerprint, typeName, err := encodeEventSchema(&event)
 	if err != nil {
 		t.Fatal(err)
 	}
