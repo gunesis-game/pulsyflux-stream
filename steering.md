@@ -111,7 +111,7 @@ Do not introduce a public storage API until the internal storage contract and du
 
 ### Repository and verified checkpoint
 - Repository: `gunesis-game/pulsyflux-stream`; work directly on `main`, no branches.
-- Current `main` HEAD: `c7a631bf05b96d2a23aa0b03515269f217cdb7d1` (documentation-only commit).\n- Current code SHA: `4c432a2eefc858c0289a0392bea79684059be846`; CI run #217 remains the verified code checkpoint.
+- `main` HEAD immediately before this handoff update: `88e860db630d2e81bede9127e49d1881f349c1ae` (documentation-only commit; this handoff update is also documentation-only).\n- Current code SHA: `4c432a2eefc858c0289a0392bea79684059be846`; CI run #217 remains the verified code checkpoint.
 - CI run #217 ([44918459724](https://github.com/gunesis-game/pulsyflux-stream/actions/runs/44918459724)) tested that exact SHA and passed on Linux and Windows.
 - Both platforms passed non-mutating formatting verification, `go test -race -coverprofile=coverage.out ./...`, per-function coverage reporting, artifact upload, `go vet ./...`, and `go build ./...`.
 - Aggregate statement coverage: Linux 84.4%, Windows 84.4%. Both reports contained 60 function entries and every per-function percentage matched. No platform-specific coverage discrepancy was found.
