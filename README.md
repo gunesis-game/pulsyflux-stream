@@ -62,7 +62,7 @@ func main() {
 
 ## Event channels and streams
 
-- `NewEventChannel()` creates a logical grouping with a random UUID.
+- `NewEventChannel()` creates a logical grouping with a private random identity.
 - `New[T](channel, bufferSize)` registers a typed stream in that grouping. It errors for nil/invalid/closed channels, non-positive buffer sizes, or duplicate registration of T within the same channel.
 - `Get[T](channel)` returns the registered stream or nil if unavailable.
 - A channel can own multiple event types. `EventChannel` is intentionally non-generic; `New[T]` and `Get[T]` are generic registry functions so one channel can contain many differently typed streams.
