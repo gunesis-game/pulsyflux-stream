@@ -241,3 +241,37 @@ If implementation is mid-flight, record the exact stopping point, uncommitted or
 - Parent-directory durability after segment creation remains an acknowledged design limitation. Do not add directory syncing until supported operating systems and the required crash-durability contract are explicitly defined.
 - No persistent index or public storage API is implemented. Keep indexing deferred until a concrete lookup use case and contract justify it.
 - No local test execution was performed during this review. The latest confirmed Go verification is the GitHub Actions run listed above.
+
+## Session handoff — non-mutating formatting gate exposed unformatted files (2026-11-21)
+
+### Latest implementation and CI state
+- Branch: `main`.
+- Latest implementation commit: `f0270afeb0ba6d7002ab7624fbb2caacb83b9529` — `ci: verify Go formatting without modifying checkout`.
+- Changed `.github/workflows/ci.yml` to remove the `gofmt -w` mutation step. The remaining formatting gate uses `gofmt -l .`, prints offending filenames, and fails when any are found. Existing test, vet, build, permissions, Go version, and Markdown path-ignore behavior remain unchanged.
+- CI run [44896560030](https://github.com/gunesis-game/pulsyflux-stream/actions/runs/44896560030) tested exact commit `f0270afeb0ba6d7002ab7624fbb2caacb83b9529` and completed with failure.
+- Job `Test and build` failed at `Verify formatting`. Logs explicitly listed:
+  - `storage_disk.go`
+  - `storage_disk_test.go`
+- `Run tests`, `Run vet`, and `Build package` were skipped because the formatting gate correctly failed. This is not a test/build failure; those checks have not yet been rerun against the corrected committed source.
+- This failure confirms the previously suspected CI gap: the old mutating step had been masking formatting drift in these two committed files.
+
+### Current state and blocker
+- The workflow now verifies the committed tree without silently repairing it.
+- The two named files still need to be run through `gofmt` and committed as formatted source.
+- No source files have been changed in this iteration. No claim is made that tests, vet, or build passed for commit `f0270af`.
+- The current execution environment has no working network route for a local `git clone` (DNS resolution for github.com failed). GitHub file read/write access is available, but the files have not yet been safely formatted in a local checkout. Do not manually approximate gofmt output or reintroduce a mutating CI step just to obtain a green result.
+
+### Next task — format the two identified files and re-run the full gate
+1. Obtain a working checkout of `main` at `f0270afeb0ba6d7002ab7624fbb2caacb83b9529`, or another reliable way to run the repository's Go 1.27.4 `gofmt` formatter on the exact contents.
+2. Run `gofmt -w storage_disk.go storage_disk_test.go` only; avoid unrelated source changes.
+3. Inspect the diff to confirm it is formatting-only. Preserve all behavior and tests.
+4. Commit and push the two formatted files to `main`.
+5. Verify the new CI run corresponds to the exact new HEAD and passes the non-mutating formatting check, `go test -race -cover ./...`, `go vet ./...`, and `go build ./...`. Record the actual coverage reported by CI.
+6. If any step fails, diagnose and correct the root cause, then repeat verification. Do not restore `gofmt -w` to the CI verification workflow.
+7. Update this steering handoff after the result. Only after the source-format commit and successful CI should the formatting-gate task be marked complete.
+
+### Confirmed observations and constraints
+- The non-mutating formatting gate found exactly two files, as listed in the run logs. The other tracked Go files were not listed by `gofmt -l .`.
+- Recovery review remains complete: the disk scanner processes frames incrementally; recovery tests cover incomplete active tails, non-active tails, complete corruption, and sequence regression. No recovery rewrite is warranted from the current evidence.
+- Keep indexing deferred until a concrete lookup/seek requirement and contract are defined.
+- Parent-directory sync durability remains deferred until supported platforms and the crash-durability contract are defined.
