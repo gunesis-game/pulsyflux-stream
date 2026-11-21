@@ -111,7 +111,7 @@ func TestDiskRecordRoundTripChecksum(t *testing.T) {
 
 func TestDiskRecordRejectsMissingSchemaFingerprintsAndOldVersion(t *testing.T) {
 	mutations := []struct {
-		name string
+		name   string
 		mutate func(*diskRecord)
 	}{
 		{"event base", func(r *diskRecord) { r.EventBaseFingerprint = "" }},
