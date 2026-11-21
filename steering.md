@@ -7,23 +7,23 @@ Maintain a small, typed, concurrency-safe Go event stream. Event redaction is im
 - **Event:** owns typed payload, event-creation time, redaction policy, payload assignment/validation, and event lifecycle. It does not own JSON serialization or deserialization.
 - **Stream:** owns concurrent delivery of complete in-memory events. Never redact during Publish.
 - **Channel / registry:** owns logical grouping and in-memory typed stream registration. Channel UUID identity is internal infrastructure, not a public persistence contract.
-- **Schema:** `schema.go` is the intermediary between typed runtime objects and the system of record. It owns the generic schema contract, canonical descriptors, dependency composition, base/effective fingerprint derivation, and the generic mapping/resolution contract that turns EventChannel/Stream schema identities into persisted instance identities. It also owns redaction policy/validation/mechanics and generic JSON encode/decode. Event, Stream, and EventChannel owning files provide only type-specific inputs/hooks; do not add per-type schema files or duplicate serialization/fingerprint logic.
-- **Storage:** the system of record is event-record-backed. Append-only event records (which contain private channel/stream UUIDs and schema fingerprints) establish persisted channel and stream existence and provide the evidence used to recover identities. Do not add a separate durable channel/stream catalog merely to persist empty entities. Storage owns segmented disk files, durability, reading/scanning, recovery, and rebuildable indexes; it receives schema identities from the schema/runtime boundary and must not independently derive Go type schemas or decide schema equivalence.
+- **Schema:** `schema.go` mediates typed runtime objects and the system of record. It owns canonical descriptors, the repurposed fingerprint mechanism for one channel-family fingerprint derived solely from `TStream`, identity-resolution contracts, redaction policy/validation/mechanics, and generic JSON encode/decode. Retire the abandoned Event/Stream/Channel Base/Effective fingerprint composition unless an audit proves an independent active consumer; do not add per-type schema files or duplicate serialization/fingerprint logic.
+- **Storage:** the system of record is event-record-backed. Append-only event records (which contain private channel/stream UUIDs and the channel-family fingerprint) establish persisted channel and stream existence and provide the evidence used to recover identities. Do not add a separate durable channel/stream catalog merely to persist empty entities. Storage owns segmented disk files, durability, reading/scanning, recovery, and rebuildable indexes; it receives schema identities from the schema/runtime boundary and must not independently derive Go type schemas or decide schema equivalence.
 - **Replay:** reads historical records and dispatches through existing stream/channel abstractions. Replay must not be re-recorded by the same recorder by default.
 
 ## Identity and schema invariants
 - Keep event, stream, and channel instance UUIDs internal. Consumers must not inspect, generate, or persist these IDs.
-- Instance identity is distinct from schema identity. Runtime UUIDs identify the recovered or newly created channel/stream instances; schema fingerprints identify the logical schema used to resolve them. A persisted record carries both. Do not substitute a schema fingerprint for the private instance UUID.
-- `TStream` is itself the channel-family schema. Its deterministic base schema fingerprint resolves the persisted channel mapping used by `NewEventChannel[TStream]`. Stream identity is then resolved only within that parent channel; the durable stream identity is the pair (resolved channel identity, resolved stream identity). A stream schema fingerprint alone is not a globally unique stream key. The consumer does not supply an ID or decide whether the channel or stream is new or previously persisted.
-- Channel identity is recovered by scanning/looking up persisted event records for the `TStream` base schema fingerprint. A matching record establishes the persisted channel identity; if no matching event record exists, the constructor creates a new runtime channel UUID. This empty channel is ephemeral until an event is persisted; no separate durable channel catalog is required.
+- Runtime UUID instance identity is distinct from the channel-family fingerprint. Persist both; never substitute one for the other.
+- `TStream` is the channel-family schema. Its repurposed deterministic fingerprint from the canonical descriptor resolves channel identity for `NewEventChannel[TStream]`, stable across stream/event registrations and redaction. Stream identity is resolved only within that parent channel; the durable identity is the pair (resolved channel identity, resolved stream identity). Consumers do not supply IDs or choose create/open.
+- Channel identity is recovered by scanning/looking up persisted event records for the channel-family fingerprint derived from canonical `TStream`. A matching record establishes the persisted channel identity; if no matching event record exists, the constructor creates a new runtime channel UUID. This empty channel is ephemeral until an event is persisted; no separate durable channel catalog is required.
 - Stream identity is recovered from persisted event records only after resolving the parent channel. Within that channel's record scope, the stream schema identity selects the persisted stream UUID. If no matching event record exists, a new runtime stream UUID is created; it remains ephemeral until an event is persisted. The same stream schema in two different channels represents two distinct persisted stream instances.
-- Event records themselves are the durable evidence for channel and stream existence. Their private UUIDs and schema fingerprints enable channel-then-stream recovery; there is no independent catalog of empty channels or streams. Do not claim transparent recovery is implemented until record-based lookup, identity validation, and constructor recovery are implemented and tested end to end.
+- Event records themselves establish durable channel and stream existence. Their private UUIDs and channel-family fingerprint enable channel-then-stream recovery; no separate catalog of empty entities. Do not claim transparent recovery is implemented until record-based lookup, identity validation, and constructor recovery are implemented and tested end to end.
 - Fingerprint-based record resolution is internal package/storage behaviour. Do not expose public Open/Find/Search operations or require consumers to inspect storage records. The package transparently recovers the existing private channel UUID when a matching event record exists; otherwise it creates a new runtime channel identity, which is not durable until an event is appended.
-- Keep the `TStream` lookup fingerprint distinct from the aggregate Channel schema fingerprint. The former identifies the channel-family schema for initial resolution; the latter composes the channel context and registered stream schemas and is persisted/validated as record schema identity. Stream-level schema identity similarly resolves the appropriate persisted stream identity.
+- Repurpose the existing fingerprint mechanism for one channel-family identity. Remove the six Event/Stream/Channel Base/Effective fingerprints if an audit confirms no other active consumers; do not add a seventh fingerprint. Stream resolution remains channel-scoped.
 - SHA-256 fingerprints are deterministic and collision-resistant, not a mathematical guarantee of uniqueness. When resolving a fingerprint, validate the canonical descriptor/identity in the persisted metadata rather than assuming a hash match alone proves equivalence.
-- Structural schema fingerprints are private deterministic SHA-256 hashes of canonical descriptors, layered as data → event → stream → channel with an explicit fingerprint-format version. Never hash raw memory, rely on unstable reflection strings, or use random UUIDs as schema fingerprints.
-- Descriptors capture exported serialized fields, field types, and JSON tags; omit unexported and json:"-" fields; normalize struct field order by JSON field name. Struct names/package paths are omitted for structural equivalence; named scalar types retain name/package identity. Descriptor/fingerprint changes are versioned changes.
-- Fingerprints detect structural definition changes; they do not provide migrations or prove semantic compatibility. Current descriptors do not capture custom MarshalJSON/UnmarshalJSON behavior or external codec semantics.
+- The channel-family fingerprint is a private deterministic SHA-256 hash of the canonical `TStream` descriptor, with explicit format versioning. Never hash raw memory, rely on unstable reflection strings, or use random UUIDs as fingerprints.
+- Canonical family descriptors capture exported serialized fields, field types, and JSON tags; omit unexported and `json:"-"` fields; normalize field order by JSON name. Struct/package names are omitted for structural equivalence; named scalar types retain identity. Descriptor changes are versioned.
+- The family fingerprint is a channel lookup identity, not migration or semantic-compatibility validation. Current descriptors do not capture custom JSON methods or external codec semantics.
 - Use full cryptographic hashes. Do not truncate or force hashes into UUID formatting without a separately justified format.
 - One channel-wide persisted sequence defines historical order across all streams in that channel; stream replay filters this global order. Sequence is authoritative. The record timestamp is event-creation time (not disk-write time) and is metadata for filtering/diagnostics, never an ordering substitute.
 - Redaction must happen before persistence. Persisted redacted data cannot restore excluded secrets.
@@ -32,7 +32,7 @@ Maintain a small, typed, concurrency-safe Go event stream. Event redaction is im
 - Keep storage taxonomy explicit: Lifecycle (Open/Close), Write (Append/Flush/Sync), Read (Scan/Read), Lookup (Find/Seek), Replay (Replay/Resume), Maintenance (Recover/Rotate/Compact/Prune/Verify), Metadata (catalog/index).
 - Prefer append-only segmented files. Make record framing, checksums, segment rollover, sync policy, and recovery boundaries explicit and versioned.
 - Distinguish application-buffer Flush from OS/filesystem Sync durability. Document the durability window for each policy.
-- Storage backends handle already-redacted JSON payload bytes and disk I/O; they must not own Go payload types, schema encoding/decoding, or redaction rules. Storage records own persistence metadata (IDs, sequence, event-creation timestamp, six schema fingerprints, framing/checksum). Do not duplicate schema type identity or timestamp inside the payload.
+- Storage backends handle already-redacted JSON payload bytes and disk I/O; they must not own Go payload types, schema encoding/decoding, or redaction rules. Storage records own persistence metadata (private IDs, sequence, event-creation timestamp, channel-family fingerprint, framing/checksum). Do not duplicate schema type identity or timestamp inside the payload.
 - Start with sequential scan and rebuildable/minimal indexes. Do not add SQL, distributed infrastructure, or a public storage API without a concrete requirement and an agreed contract.
 - Avoid parallel public event, stream, channel, or storage-record models unless a concrete boundary requires one.
 
@@ -51,7 +51,7 @@ Expected typed event/channel/stream relationship:
 - Each stream supplies its own `TEvent`, which determines its typed payload and event schema identity. Event instances remain `Event[TEvent]`.
 - Keep stream operations strongly typed for their respective `TEvent`; do not collapse the public API to `Stream[TStream]` or make `EventChannel` non-generic.
 - The channel may relate streams with different event types; do not constrain all streams in one channel to share a single `TEvent`.
-- `NewEventChannel[TStream]` is the single consumer-facing channel creation entry point. It must transparently recover a channel UUID from matching persisted event records using the `TStream` base schema fingerprint, or create a new runtime identity when no matching event exists. Empty channels are not durably cataloged; consumers must not choose create/open, supply UUIDs, or perform find/search operations.
+- `NewEventChannel[TStream]` is the single consumer-facing channel entry point. It transparently recovers a channel UUID from persisted event records using the channel-family fingerprint, or creates a runtime identity when none exists. Empty channels are not durable; consumers cannot choose create/open or supply IDs.
 - `New[TStream, TEvent](channel, bufferSize)` remains the stream registration entry point. Internally, it resolves an existing stream using its schema identity within the resolved channel's persisted event records and restores its private stream UUID, or creates a new runtime stream identity when no matching record exists. Empty streams are not durably cataloged. The consumer does not need to know whether a stream has prior events.
 - Preserve private channel and stream instance identities. The generic type relationship and schema fingerprints are not substitutes for the runtime UUIDs. Storage lookup/index mechanics and constructor error propagation must be designed internally; do not expose storage APIs to solve them.
 
@@ -107,62 +107,31 @@ Do not introduce a public storage API until the internal storage contract and du
 - If work is interrupted, record the exact stopping point, pending checks, uncommitted/unpushed state, and safest next action. Never describe uncommitted work as pushed or unverified work as tested.
 - Keep this file directive-oriented and concise. Do not duplicate README walkthroughs or retain resolved session narratives.
 
-## Current handoff — generic channel and schema identities implemented (2026-11-21)
+## Current handoff — fingerprint repurpose for family-backed recovery (2026-11-22)
 
-### Repository and verified checkpoint
-- Repository: `gunesis-game/pulsyflux-stream`; work directly on `main`, no branches.
-- `main` HEAD immediately before this handoff update: `88e860db630d2e81bede9127e49d1881f349c1ae` (documentation-only commit; this handoff update is also documentation-only).\n- Current code SHA: `4c432a2eefc858c0289a0392bea79684059be846`; CI run #217 remains the verified code checkpoint.
-- CI run #217 ([44918459724](https://github.com/gunesis-game/pulsyflux-stream/actions/runs/44918459724)) tested that exact SHA and passed on Linux and Windows.
-- Both platforms passed non-mutating formatting verification, `go test -race -coverprofile=coverage.out ./...`, per-function coverage reporting, artifact upload, `go vet ./...`, and `go build ./...`.
-- Aggregate statement coverage: Linux 84.4%, Windows 84.4%. Both reports contained 60 function entries and every per-function percentage matched. No platform-specific coverage discrepancy was found.
-- No local Go test execution is claimed; GitHub Actions is the verification source.
-- `docs/storage_disk.md` remains aligned with `storage_disk.go`; no disk-record format changes were made.
+### Verified checkpoint
+- Repository: `gunesis-game/pulsyflux-stream`, branch `main`.
+- Last verified code SHA: `4c432a2eefc858c0289a0392bea79684059be846`, CI run #217 (`44918459724`) passed Linux and Windows. Aggregate coverage 84.4% on each; 60 functions matched. This remains the last verified code checkpoint. Current changes are documentation-only and not CI-tested.
+- Existing generic EventChannel/Stream API and redaction behavior remain.
+- Disk record format is v2 with six fingerprints; no implementation changes for the family fingerprint yet. `docs/storage_disk.md` alignment was last checked before this redesign.
 
-### Implemented generic API and registry ownership
-- `EventChannel[TStream]` is the typed parent for multiple `Stream[TStream, TEvent]` values. All streams owned by one channel share `TStream`; each stream has its own `TEvent`. Events remain `Event[TEvent]`.
-- `Stream` and `Subscription` carry both type parameters. Subscribe, Publish, and event delivery remain strongly typed.
-- Generic package-level constructors/lookups are `New[TStream, TEvent](channel, bufferSize)` and `Get[TStream, TEvent](channel)`.
-- The channel owns and synchronizes its private heterogeneous registry, keyed by reflected `TEvent` type. Heterogeneous storage is private; the public API returns typed streams.
-- Duplicate registration of the same `TEvent` within one channel returns `ErrDuplicateStream`; different event types coexist.
-- `EventChannel.Close` marks the channel closed, detaches its streams under the channel lock, then closes them outside the lock.
-- The package-global `defaultStore` and standalone `store.go` have been removed. Do not repurpose the old in-memory event store as a stream registry; stream registration belongs to the channel. Disk persistence is separate in `storage_disk.go`.
-- Channel UUID remains private and separate from schema fingerprints.
-- README and tests use the generic API. Tests register three different event types under one channel and preserve isolation, duplicate, close, delivery, cancellation, and concurrency behavior.
+### Agreed direction
+- Repurpose existing fingerprint machinery for one channel-family fingerprint derived solely from canonical `TStream`, invariant to registered streams/events, redaction, and aggregate channel composition.
+- Audit six-fingerprint consumers, then remove unused Event/Stream/Channel Base/Effective composition and record metadata. Do not add a seventh fingerprint.
+- Event records alone establish persisted channel/stream existence. Recover channel UUID by family fingerprint; recover stream UUID only within the recovered channel. Empty entities remain ephemeral.
+- Keep IDs and recovery metadata internal. No consumer-facing open/find/search or ID-selection API.
 
-### Implemented schema identity composition
-- Event base/effective identities are derived from `TEvent` structure and that Event's normalized redaction paths.
-- Stream base/effective identities include the canonical `TStream` context and the Event base/effective identity for the event being recorded.
-- Channel base identity includes the `TStream` context and all registered stream base identities, sorted deterministically.
-- For a record, Channel effective identity includes the active stream's event-specific effective identity; other registered streams contribute their default effective identity (empty redaction policy). This makes event-level policy variation explicit without freezing one policy on a stream or channel.
-- `Stream.schemaFingerprintsFor(event)` derives all six record fingerprints (Event, Stream, Channel base/effective) from runtime objects. The disk writer already accepts the six-value `schemaFingerprints` input, but the recorder/writer lifecycle is not yet connected.
-- Added `docs/schema_identity.md` describing the contract and its per-record policy behavior.\n- Added `docs/record_scope.md` defining the system-of-record lookup model: resolve the channel from the `TStream` base schema identity, then resolve a stream within that channel, yielding the stream's event-record collection. The two-stage model is logical; storage may use a composite index without changing scope semantics.
-- Removed the obsolete layer-only `schemaFingerprint` helper; runtime identity composition now uses the shared base/effective identity contract.
-
-### Remaining confirmed gaps and risks
-- **Foundational mapping is not implemented:** `schema.go` currently derives canonical descriptors/fingerprints and performs redaction/JSON encoding/decoding, but it has no schema-to-system-of-record resolver or durable mapping contract for `EventChannel[TStream]` or `Stream[TStream, TEvent]`.
-- `channel.go` currently generates a fresh random channel UUID in `NewEventChannel` and does not resolve/persist a channel mapping by the `TStream` base fingerprint.
-- `New`/`register` currently creates an in-memory stream and does not resolve/persist a stream mapping by stream schema identity.
-- `storage_disk.go` currently persists event records containing UUIDs and six schema fingerprints, but those event records do not constitute the missing channel/stream identity mapping/catalog. There is no durable constructor recovery path.
-- The six fingerprints are derivable, but no recorder lifecycle currently connects Publish/Event to `diskWriter.Append`.
-- Private storage location/ownership and writer lifecycle per logical channel remain unresolved. Do not invent a path, global directory, or public configuration API.
-- `SyncEachAppend` remains unsupported pending a reliable, documented, tested directory-entry durability contract on both Linux and Windows.
-- Event policy variation is defined per record. Other streams in the same channel contribute their empty-policy effective identity when computing that record's Channel effective fingerprint.
-
-### Agreed direction: transparent, event-backed schema-fingerprint recovery
-- The consumer uses one public channel entry point: `NewEventChannel[TStream]()`. There is no separate public create/open choice and no public channel Find/Search operation.
-- Internally, derive the deterministic base schema fingerprint for `TStream`. Use it to resolve the logical channel's persisted record. If found, recover its private channel UUID and metadata; if absent, create a new private UUID and initialise the channel record.
-- The `TStream` base fingerprint is the channel-family lookup identity. Stream resolution is scoped by the resolved parent channel; never globally resolve a stream from its schema fingerprint alone. Do not confuse the channel-family lookup fingerprint with the aggregate Channel base/effective fingerprints, which compose the channel context and registered stream schemas for record identity.
-- `New[TStream, TEvent](channel, bufferSize)` similarly resolves or creates the stream's private identity using the stream schema identity within the resolved channel. Resolve-or-create must be atomic; concurrent constructors for one mapping converge on the same persisted identity. Mapping failures and canonical descriptor conflicts must be returned, never converted into a fresh UUID.
-- Persisted fingerprints and canonical descriptors are internal recovery metadata. Fingerprints are deterministic and collision-resistant; verify canonical identity on a match rather than claiming mathematical collision impossibility.
-- `schema.go` mediates schema-to-instance mapping and validates recovered schema descriptors; storage implements durable lookup/catalog operations, metadata writes, and recovery. Runtime channel/stream constructors coordinate these private contracts and restore/create UUIDs. Do not expose storage records, IDs, or lookup operations in the public API.
-- `docs/record_scope.md` describes the record-scope lookup model and channel-scoped stream identity. Persisted existence is event-backed: a record establishes its channel and stream; no events means no persisted channel or stream identity. Empty runtime channels/streams are valid but ephemeral. Do not add a separate durable catalog for empty entities. Existing `storage_disk` design owns physical storage and segment lifecycle; extend it only for record lookup/index needs. Constructor error propagation still needs design where durable lookup can fail.
+### Remaining gaps
+- Channel and stream constructor recovery is not implemented; constructors currently generate runtime UUIDs.
+- Publish/record lifecycle is not connected to disk append.
+- Storage location/ownership and writer lifecycle remain unresolved; do not invent configuration.
+- `SyncEachAppend` remains unsupported until directory-entry durability is designed/tested across OSes.
+- The six-fingerprint docs and disk format docs need audit/reconciliation.
 
 ### Next task
-1. Update/review `docs/record_scope.md` to make event-backed existence explicit: only persisted event records establish durable channel/stream existence; empty runtime entities are ephemeral. Preserve channel-scoped stream identity.
-2. Implement record-based channel resolution using `TStream` base fingerprint, then stream resolution within the resolved channel using stream schema identity. Recover UUIDs from matching records; generate runtime UUIDs when no match exists, with no standalone catalog for empty entities.
-3. Connect `Stream.schemaFingerprintsFor(event)` and the redacted payload to `diskWriter.Append`, preserving storage_disk's existing segment layout and lifecycle design.
-4. Add end-to-end tests for record-based channel/stream recovery, no-event ephemeral construction, append/replay with all six fingerprints, per-event redaction changes, multiple streams in one channel, channel close, lookup errors, and writer failures.
-5. Keep `SyncEachAppend` unsupported until cross-platform directory-entry durability is explicitly designed and tested.
-7. Verify each code-changing SHA through Linux/Windows CI and compare aggregate plus per-function coverage. Do not trigger the manually controlled release workflow.
-
-Acceptance: both runtime-object-to-system-of-record mappings are durable and mediated by `schema.go`; consumers use the same public constructors whether records exist or not; `TStream` base fingerprint transparently resolves the logical channel; stream schema identity transparently resolves stream identity within that channel; private UUIDs are restored rather than exposed; aggregate six-fingerprint event-record identity and redaction boundaries remain intact; and exact-SHA Linux/Windows CI passes with coverage comparison.
+1. Audit all six fingerprint usages in schema code, disk record encoding/validation, tests, and docs.
+2. Implement family fingerprint from canonical `TStream` by repurposing existing fingerprint code.
+3. Remove unused six-fingerprint composition and record fields; update encoding/validation, fixtures, tests, `docs/storage_disk.md`, `docs/schema_identity.md`, and `docs/record_scope.md` coherently. No seventh fingerprint or unnecessary version bump.
+4. Test family stability across registered stream/event types and redaction policies, distinct families, canonical descriptors, record encode/decode, and recovery.
+5. Preserve redaction/payload boundaries; keep `SyncEachAppend` unsupported until durability contract is agreed.
+6. Verify code changes against exact-SHA Linux/Windows CI and compare aggregate/per-function coverage. Do not trigger release CI.
