@@ -325,3 +325,57 @@ func schemaJSONFieldName(field reflect.StructField) string {
 	}
 	return name
 }
+
+// eventSchemaIdentity derives the Event layer identity from the shared schema
+// contract. Higher layers compose this identity with their own descriptors.
+func eventSchemaIdentity[T any](policy RedactionPolicy) (schemaIdentity, []string, error) {
+	t := reflect.TypeOf((*T)(nil)).Elem()
+	paths, err := normalizeSchemaRedactionPaths(t, policy.exclude)
+	if err != nil {
+		return schemaIdentity{}, nil, err
+	}
+	data := composeSchemaIdentity(schemaData, canonicalTypeDescriptor(t), nil)
+	identity := composeSchemaIdentity(schemaEvent, "event:v1", paths, data)
+	return identity, paths, nil
+}
+
+// encodeSchema serializes typed data and applies redaction to a JSON copy.
+// The returned bytes are the payload itself, without persistence metadata.
+func encodeSchema[T any](data T, policy RedactionPolicy) ([]byte, schemaIdentity, error) {
+	identity, paths, err := eventSchemaIdentity[T](policy)
+	if err != nil {
+		return nil, schemaIdentity{}, fmt.Errorf("validate schema redaction policy: %w", err)
+	}
+	raw, err := json.Marshal(data)
+	if err != nil {
+		return nil, schemaIdentity{}, fmt.Errorf("marshal schema data: %w", err)
+	}
+	redacted, err := redactSchemaJSON(raw, paths)
+	if err != nil {
+		return nil, schemaIdentity{}, fmt.Errorf("redact schema data: %w", err)
+	}
+	return redacted, identity, nil
+}
+
+// decodeSchema validates the expected schema identity before decoding the
+// persisted, already-redacted payload. Excluded values cannot be recovered.
+func decodeSchema[T any](raw []byte, expected schemaIdentity, policy RedactionPolicy) (T, error) {
+	var data T
+	identity, _, err := eventSchemaIdentity[T](policy)
+	if err != nil {
+		return data, fmt.Errorf("validate schema redaction policy: %w", err)
+	}
+	if identity.Base != expected.Base || identity.Effective != expected.Effective {
+		return data, fmt.Errorf("decode schema: schema identity mismatch")
+	}
+	if len(raw) == 0 || !json.Valid(raw) {
+		return data, fmt.Errorf("decode schema: invalid or empty JSON payload")
+	}
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return data, fmt.Errorf("decode schema data: %w", err)
+	}
+	if err := validateSchemaData(data); err != nil {
+		return data, fmt.Errorf("validate decoded schema data: %w", err)
+	}
+	return data, nil
+}
