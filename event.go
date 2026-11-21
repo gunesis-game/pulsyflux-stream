@@ -187,3 +187,44 @@ func (e *Event[T]) validate() error {
 	_, err := normalizeEventRedactionPaths(reflect.TypeOf((*T)(nil)).Elem(), e.redactionPolicy.exclude)
 	return err
 }
+
+// encodeEventPayload serializes typed event data and applies redaction to a JSON copy.
+// The returned bytes are the payload itself, without persistence metadata.
+func encodeEventPayload[T any](data T, policy RedactionPolicy) ([]byte, schemaIdentity, error) {
+	identity, paths, err := eventSchemaIdentity[T](policy)
+	if err != nil {
+		return nil, schemaIdentity{}, fmt.Errorf("validate event redaction policy: %w", err)
+	}
+	raw, err := json.Marshal(data)
+	if err != nil {
+		return nil, schemaIdentity{}, fmt.Errorf("marshal event payload: %w", err)
+	}
+	redacted, err := redactEventJSON(raw, paths)
+	if err != nil {
+		return nil, schemaIdentity{}, fmt.Errorf("redact event payload: %w", err)
+	}
+	return redacted, identity, nil
+}
+
+// decodeEventPayload validates the expected event identity before decoding the
+// persisted, already-redacted payload. Excluded values cannot be recovered.
+func decodeEventPayload[T any](raw []byte, expected schemaIdentity, policy RedactionPolicy) (T, error) {
+	var data T
+	identity, _, err := eventSchemaIdentity[T](policy)
+	if err != nil {
+		return data, fmt.Errorf("validate schema redaction policy: %w", err)
+	}
+	if identity.Base != expected.Base || identity.Effective != expected.Effective {
+		return data, fmt.Errorf("decode event payload: identity mismatch")
+	}
+	if len(raw) == 0 || !json.Valid(raw) {
+		return data, fmt.Errorf("decode event payload: invalid or empty JSON")
+	}
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return data, fmt.Errorf("decode event payload: %w", err)
+	}
+	if err := validateEventData(data); err != nil {
+		return data, fmt.Errorf("validate decoded schema data: %w", err)
+	}
+	return data, nil
+}
