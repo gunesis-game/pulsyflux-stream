@@ -4,10 +4,10 @@
 Maintain a small, typed, concurrency-safe Go event stream. Event redaction is implemented for the private serialization boundary. Durable storage, indexing, schema cataloging, and replay are internal capabilities to be implemented incrementally while preserving the lightweight live-stream core.
 
 ## Ownership boundaries
-- **Event:** owns typed payload, internal timestamp, redaction policy, payload assignment/validation, and event lifecycle. Schema-aware serialization/deserialization and event type identity are centralized in `schema.go`.
+- **Event:** owns typed payload, event-creation time, redaction policy, payload assignment/validation, and event lifecycle. It does not own JSON serialization or deserialization.
 - **Stream:** owns concurrent delivery of complete in-memory events. Never redact during Publish.
 - **Channel / registry:** owns logical grouping and in-memory typed stream registration. Channel UUID identity is internal infrastructure, not a public persistence contract.
-- **Schema fingerprinting:** privately derives deterministic structural fingerprints for payload/event, stream, and channel schema layers. Fingerprints identify definitions, not runtime instances. Never expose fingerprint values or internal UUIDs in the consumer API.
+- **Schema:** `schema.go` owns the generic schema contract, descriptors, dependency composition, base/effective fingerprint derivation, redaction policy/validation/mechanics, and generic JSON encode/decode. Event, Stream, and EventChannel owning files provide only type-specific inputs/hooks; do not add per-type schema files or duplicate JSON serialization.
 - **Storage:** internal subsystem for serialized records, segmented disk files, durability, reading/scanning, recovery, and rebuildable indexes/catalog metadata.
 - **Replay:** reads historical records and dispatches through existing stream/channel abstractions. Replay must not be re-recorded by the same recorder by default.
 
@@ -18,14 +18,14 @@ Maintain a small, typed, concurrency-safe Go event stream. Event redaction is im
 - Descriptors capture exported serialized fields, field types, and JSON tags; omit unexported and json:"-" fields; normalize struct field order by JSON field name. Struct names/package paths are omitted for structural equivalence; named scalar types retain name/package identity. Descriptor/fingerprint changes are versioned changes.
 - Fingerprints detect structural definition changes; they do not provide migrations or prove semantic compatibility. Current descriptors do not capture custom MarshalJSON/UnmarshalJSON behavior or external codec semantics.
 - Use full cryptographic hashes. Do not truncate or force hashes into UUID formatting without a separately justified format.
-- Sequence numbers, not timestamps or UUIDs, define persisted order within a stream. Timestamps are metadata for filtering and diagnostics.
+- One channel-wide persisted sequence defines historical order across all streams in that channel; stream replay filters this global order. Sequence is authoritative. The record timestamp is event-creation time (not disk-write time) and is metadata for filtering/diagnostics, never an ordering substitute.
 - Redaction must happen before persistence. Persisted redacted data cannot restore excluded secrets.
 
 ## Storage taxonomy and direction
 - Keep storage taxonomy explicit: Lifecycle (Open/Close), Write (Append/Flush/Sync), Read (Scan/Read), Lookup (Find/Seek), Replay (Replay/Resume), Maintenance (Recover/Rotate/Compact/Prune/Verify), Metadata (catalog/index).
 - Prefer append-only segmented files. Make record framing, checksums, segment rollover, sync policy, and recovery boundaries explicit and versioned.
 - Distinguish application-buffer Flush from OS/filesystem Sync durability. Document the durability window for each policy.
-- Storage backends handle encoded records and disk I/O; they must not own Go payload types or redaction rules.
+- Storage backends handle already-redacted JSON payload bytes and disk I/O; they must not own Go payload types, schema encoding/decoding, or redaction rules. Storage records own persistence metadata (IDs, sequence, event-creation timestamp, six schema fingerprints, framing/checksum). Do not duplicate schema type identity or timestamp inside the payload.
 - Start with sequential scan and rebuildable/minimal indexes. Do not add SQL, distributed infrastructure, or a public storage API without a concrete requirement and an agreed contract.
 - Avoid parallel public event, stream, channel, or storage-record models unless a concrete boundary requires one.
 
@@ -42,7 +42,7 @@ Expected event API:
 - NewEvent[T](redactionPolicy RedactionPolicy) (Event[T], error)
 - (*Event[T]).SetData(T) error
 - (*Event[T]).Data() T
-Keep type-name derivation, timestamp, envelope, serialize, deserialize, validation, instance IDs, and schema fingerprints private. Do not add public Validate/Serialize/Deserialize/TypeName methods or restore public event struct fields for payload/time/type metadata.
+Keep type-name derivation, timestamp, serialization/deserialization, validation, instance IDs, and schema fingerprints private. Do not introduce an event envelope: the payload is the event's redacted data directly; schema identity is validated separately, and sequence/timestamp live only in the storage record. Do not add public Validate/Serialize/Deserialize/TypeName methods or restore public event struct fields for payload/time/type metadata.
 Do not introduce a public storage API until the internal storage contract and durability semantics are designed and tested.
 
 ## Redaction invariants
@@ -87,51 +87,36 @@ Do not introduce a public storage API until the internal storage contract and du
 - If work is interrupted, record the exact stopping point, pending checks, uncommitted/unpushed state, and safest next action. Never describe uncommitted work as pushed or unverified work as tested.
 - Keep this file directive-oriented and concise. Do not duplicate README walkthroughs or retain resolved session narratives.
 
-## Current handoff — generic schema extensions, redaction fingerprints, and channel-wide replay design (2026-11-21)
+## Current handoff — schema consolidation and envelope removal (2026-11-21)
 
 ### Repository and verified checkpoint
 - Repository: `gunesis-game/pulsyflux-stream`; work directly on `main`, no branches.
-- Current HEAD before this handoff edit: `da9e144f828a8495a83162d9bd1925cc511bd31e`.
-- Last code SHA: `ed1911b87813bbe79ea31fedf698a68e268c62bf`; CI run [44908089974](https://github.com/gunesis-game/pulsyflux-stream/actions/runs/44908089974), run #191, passed Linux and Windows.
-- That run reported 83.9% aggregate statement coverage on both platforms; coverage profiles and per-function coverage were identical. The handoff edit is documentation-only and does not trigger CI.
-- No implementation of the newly agreed generic schema/fingerprint/replay architecture has been made. No local Go test execution is claimed.
-- `docs/storage_disk.md` still describes the current single-schema-fingerprint disk record and current private writer/reader; it does not yet describe the proposed multi-fingerprint record format. It remains accurate for the current implementation, not the agreed future design.
+- Current code HEAD: `99077e389232f02ab5721e2fe84496d0c558bf86` (`refactor: introduce shared base and effective schema identities`).
+- CI run #192 (`44911479446`) tested that exact SHA and passed. Linux and Windows jobs both completed formatting verification, race-enabled tests/coverage, per-file coverage reporting, artifact upload, vet, and build. Cross-platform aggregate/per-function coverage still needs inspection from this run's artifacts before treating the comparison as complete.
+- This handoff update is documentation-only; it is not covered by the code CI run.
+- No local Go test execution is claimed.
 
-### Agreed architecture — requirements, not yet implemented
+### Agreed architecture and implementation rules
+- `schema.go` is the single owner of the generic schema contract and generic JSON encoding/decoding. Use the generic operation names `encodeSchema` and `decodeSchema`; do not introduce `encodeEventSchema`/`decodeEventSchema`.
+- Do not create `event_schema.go`, `stream_schema.go`, or `channel_schema.go`. Remove the existing `event_schema.go` after consolidating its generic mechanisms into `schema.go`. Event/Stream/EventChannel source files may supply type-specific runtime state or schema inputs/hooks, but never JSON serialization.
+- The schema contract covers `Event[TData]`, `Stream[TEvent]`, and `EventChannel[TStream]`. The current non-generic EventChannel must become generic; this is an intentional breaking API change and must be reflected in callers, tests, and docs.
+- Redaction is integral to the shared schema model. Shared policy representation, validation, redaction mechanics, and fingerprint derivation belong in `schema.go`; type-specific code supplies only what the generic contract cannot infer.
+- Each Event, Stream, and EventChannel has base and effective fingerprints. Dependency composition propagates nested base/effective schema changes. All six values remain independently available to private storage validation; do not collapse them into one.
+- Fingerprints identify definitions, not runtime instances. Keep fingerprints and internal UUIDs private. Fingerprints do not prove redaction was applied; persist only redacted payloads.
+- The event envelope must be removed completely. Persist the event's redacted data directly as JSON; do not wrap it in duplicate type/data/time metadata. Schema type identity is derived/validated by the schema contract, not duplicated in payload metadata.
+- Storage record owns EventID, StreamID, ChannelID, channel-wide Sequence, event-creation Timestamp, all six fingerprints, and record framing/checksum. Keep timestamp in the record as the event's creation time (not append/write time); remove timestamp from the payload. Sequence is authoritative persisted order; timestamp is diagnostic/filter metadata.
+- Successful Stream.Publish includes recording in the accepted publish path. One channel-wide sequence establishes historical order across streams. Stream replay filters that history; channel replay scans it once and dispatches matching records to existing stream subscribers in sequence order. Replay is not re-recorded by the same recorder by default.
+- Preserve live Publish atomicity, fail-closed recording/replay, and existing subscriber delivery semantics. Replay preserves dispatch order, not cross-stream application processing order across independent goroutines.
+- Private storage location/ownership and writer lifecycle per logical channel are still unresolved. Do not invent a path, global directory, or public configuration API. Resolve this before connecting recorder lifecycle to Publish.
+- `SyncEachAppend` remains unsupported on Linux and Windows until directory-entry durability can be documented and tested consistently.
 
-#### Shared schema contract and type extensions
-- `schema.go` owns one generic schema contract and reusable mechanisms. `event_schema.go`, `stream_schema.go`, and `channel_schema.go` extend that contract with only type-specific schema information and behaviour; they must not duplicate facilities already supplied centrally.
-- The schema model covers `Event[TData]`, `Stream[TEvent]`, and `EventChannel[TStream]`. The current source has a non-generic `EventChannel`; reconcile this explicitly as part of the planned generic channel change rather than silently treating current code as already compliant.
-- Redaction is part of this shared schema model. The central layer owns common policy representation, validation, redaction mechanics, and fingerprint derivation; type-specific extensions declare how policy applies to their respective schemas.
-- Each of the three schema layers has both a **base schema fingerprint** (before redaction) and an **effective schema fingerprint** (after the applicable redaction policy). Redaction can change the effective schema fingerprint. Dependency composition must ensure changes to a nested schema or its effective redaction are reflected by dependent Stream and EventChannel fingerprints.
-- The six identities (base/effective for Event, Stream, and EventChannel) must be available to the private disk record/storage validation path. Do not collapse them into one fingerprint or assume a combined fingerprint makes the individual identities unnecessary.
-- Fingerprints identify schema definitions, not runtime instances. Preserve private instance identity boundaries and do not expose fingerprints or internal UUIDs through consumer APIs.
-- Persisted payloads must be redacted before disk append. Fingerprints identify the schema/redaction view; they do not independently prove that redaction was correctly applied.
-
-#### Recording, ordering, and replay
-- A successful `Stream.Publish()` includes recording as part of the successful publish path. Accepted live events receive their persisted sequence at the same ordering boundary.
-- `EventChannel` is a logical scope, not a publish/subscribe endpoint. Publish and subscribe remain at individual Stream level.
-- Channel-level replay is orchestration across streams registered to the channel. It initiates delivery through each stream's existing subscribers; it is not a separate channel subscription, channel delivery buffer, or alternate publish endpoint.
-- One channel-wide sequence defines historical order across all streams. Stream replay filters that history while preserving the selected stream's relative order. Channel replay scans the global sequence and dispatches each record to its matching stream in that order. Never replay streams independently and merge their results.
-- The sequence is assigned at the channel-level ordering point. Replay dispatch preserves cross-stream order; independently consumed subscriber channels/goroutines do not guarantee application processing order across streams.
-- Replay must not be re-recorded by the same recorder by default. Preserve existing live Publish atomicity and fail-closed storage/replay behaviour.
-
-### Confirmed gaps and unresolved decisions
-- Current `schema.go` has structural layer fingerprints but no base/effective distinction or redaction-aware effective fingerprint contract.
-- Current `event_schema.go` computes only an Event fingerprint and owns event-envelope encoding/decoding. No `stream_schema.go` or `channel_schema.go` exists.
-- Current `diskRecord` in `storage_disk.go` stores one `SchemaFingerprint`, not six layer/base-effective identities. Record format/version and validation need a deliberate change.
-- Current `EventChannel` in `channel.go` is non-generic. The agreed `EventChannel[TStream]` model requires a source/API design change.
-- The disk writer assigns sequence under its own writer mutex and is not integrated with Stream Publish or a channel-wide ordering coordinator.
-- Persistent storage location/ownership and writer lifecycle per logical channel remain unresolved. Do not invent a path, public configuration API, or implicit global storage directory. Resolve this design before wiring recording into Publish.
-- Current disk writer buffers successful appends by default; do not claim crash durability. `SyncEachAppend` remains rejected on Linux and Windows until the documented cross-platform directory-entry durability requirement is met.
-- No replay/recording implementation has been added. `docs/storage_disk.md` must be updated in the same code commit as any disk record/framing/reader/writer behaviour change.
-
-### Next task and acceptance criteria
-1. Design the generic schema contract in `schema.go`: schema descriptors/composition, base/effective fingerprint derivation, and shared redaction semantics. Keep type-specific extensions thin and non-duplicative.
-2. Design `Event[TData]`, `Stream[TEvent]`, and generic `EventChannel[TStream]` schema extensions, including dependency composition and compatibility checks.
-3. Before implementing recorder integration, resolve private persistent storage location/ownership and the channel-level ordering/lifecycle boundary.
-4. Extend private disk record metadata to carry and validate all six fingerprints; version the record format deliberately and update `docs/storage_disk.md` in the same code commit.
-5. Add focused tests for base fingerprint stability, effective fingerprint changes under redaction, dependency fingerprint propagation, schema mismatch at each layer, serialization/deserialization, and redaction before persistence.
-6. For recording/replay, test channel-wide sequence assignment under concurrent publishes, channel replay ordering across streams and segment rotations/restarts, stream filtering, replay/live handoff without gaps or duplicates, replay non-recording, slow subscribers, close/cancellation, and fail-closed recorder/replay errors.
-7. Run the configured Linux and Windows CI on the exact code SHA. Compare aggregate and per-function coverage and inspect profile artifacts for unexplained differences. Update this handoff after analysis; when the task is fully resolved, move lasting instructions/design knowledge into the correct steering sections or `./docs`, then remove the completed handoff section.
-
+### Confirmed implementation state and next work
+- Current `schema.go` has shared redaction helpers and base/effective identity composition, but generic encode/decode is not yet consolidated there.
+- Current `event_schema.go` still contains `eventEnvelope`, type-specific encode/decode, and event schema logic; remove it after migration.
+- Current `diskRecord` still has one `SchemaFingerprint` and duplicate `Type`; change the private record format deliberately to the six fingerprints and remove `Type`. Update `docs/storage_disk.md` in the same code change.
+- Current `diskWriter.Append` accepts schema/type strings and timestamp separately; revise it to accept storage-owned metadata and already encoded/redacted payload according to the consolidated schema contract.
+- Before recorder integration, settle storage directory ownership/lifecycle. Do not silently proceed with an invented persistent path.
+- Next implementation sequence: (1) inspect all schema/event/storage tests and call sites; (2) move generic JSON encode/decode and event schema inputs into `schema.go`, remove the envelope and `event_schema.go`; (3) update disk record/version/tests/docs for six fingerprints and no Type field; (4) implement generic EventChannel API and dependency identity propagation; (5) resolve private storage ownership before recorder integration; (6) then implement recording/replay.
+- Add tests for direct redacted payload JSON, no envelope metadata, event creation timestamp retained only in diskRecord, base/effective identity propagation at all three layers, six-field record validation/round-trip, generic channel compile/API use, and failure paths.
+- Verify the exact code SHA with Linux and Windows CI. Inspect coverage artifacts and compare aggregate plus per-function coverage; do not force percentages to match. Update this handoff in place after CI analysis. Do not trigger the manually controlled release workflow.
+- Acceptance: `schema.go` alone owns generic encode/decode; no per-type schema files remain; no event envelope or duplicate payload Type/timestamp; disk records retain event timestamp and all six fingerprints; intentional public API changes are reflected in tests/docs; development CI verified on the exact SHA; storage ownership decision is documented before recorder wiring.
