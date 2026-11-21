@@ -25,7 +25,7 @@ func TestDiskRecordSizePreflightMatchesJSONEncoding(t *testing.T) {
 	payloads := []json.RawMessage{
 		json.RawMessage(`{ "html" : "<>&", "items" : [1, 2, 3] }`),
 		json.RawMessage(`"line\nseparator"`),
-		json.RawMessage(`"\u2028 and \u2029"`),
+		json.RawMessage("\"literal\u2028 and \u2029\""),
 		json.RawMessage(`null`),
 	}
 	for _, payload := range payloads {
@@ -71,7 +71,7 @@ func TestDiskRecordSizePreflightRejectsOversizedAndInvalidPayloads(t *testing.T)
 func TestDiskRecordSizePreflightCountsEscapingAndCompaction(t *testing.T) {
 	record := testDiskRecord(1)
 	record.SchemaFingerprint = "<schema>&"
-	record.Type = "type\nwith\tcontrols"
+	record.Type = "type\nwith\tcontrols\u2028"
 	record.Payload = json.RawMessage("  { \"value\" : \"<>&\" }  \n")
 	want, err := json.Marshal(record)
 	if err != nil {

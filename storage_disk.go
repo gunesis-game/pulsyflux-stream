@@ -95,20 +95,32 @@ func compactRawMessageSize(raw []byte, limit int) (int, error) {
 	}
 	size := 0
 	inString, escaped := false, false
-	for _, c := range raw {
+	for i := 0; i < len(raw); i++ {
+		c := raw[i]
 		if inString {
-			size++
 			if escaped {
+				size++
 				escaped = false
 				continue
 			}
 			switch c {
 			case '\\':
+				size++
 				escaped = true
 			case '"':
+				size++
 				inString = false
 			case '<', '>', '&':
-				size += 5 // one input byte becomes the six-byte \u00xx escape
+				size += 6 // encoding/json writes the six-byte \u00xx escape
+			case 0xe2:
+				if i+2 < len(raw) && raw[i+1] == 0x80 && (raw[i+2] == 0xa8 || raw[i+2] == 0xa9) {
+					size += 6 // encoding/json also escapes U+2028 and U+2029
+					i += 2
+				} else {
+					size++
+				}
+			default:
+				size++
 			}
 		} else {
 			switch c {
