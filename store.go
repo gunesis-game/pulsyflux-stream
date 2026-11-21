@@ -25,31 +25,6 @@ var defaultStore = &streamStore{
 	streams: make(map[streamKey]any),
 }
 
-// EventChannel is a logical grouping identity for related typed streams.
-// Its UUID is independent of the in-memory registry and can be persisted by
-// applications that need to reconstruct the same logical channel later.
-type EventChannel struct {
-	ID uuid.UUID
-
-	mu     sync.RWMutex
-	closed bool
-}
-
-// NewEventChannel creates a new logical event channel with a random UUID.
-func NewEventChannel() *EventChannel {
-	return &EventChannel{ID: uuid.New()}
-}
-
-// NewEventChannelWithID reconstructs a logical event channel using an existing
-// UUID. This is useful when restoring a previously persisted channel identity.
-// uuid.Nil is rejected because it does not identify a valid channel.
-func NewEventChannelWithID(id uuid.UUID) (*EventChannel, error) {
-	if id == uuid.Nil {
-		return nil, ErrNilEventChannelID
-	}
-	return &EventChannel{ID: id}, nil
-}
-
 // register creates and stores a stream for T under the channel's stable UUID.
 func register[T any](channel *EventChannel, bufferSize int) (*Stream[T], error) {
 	if channel == nil {
@@ -81,6 +56,7 @@ func register[T any](channel *EventChannel, bufferSize int) (*Stream[T], error) 
 		subs:       make(map[uint64]*subscriber[T]),
 		bufferSize: bufferSize,
 	}
+
 	defaultStore.streams[key] = s
 	return s, nil
 }
@@ -113,24 +89,9 @@ func Get[T any](channel *EventChannel) *Stream[T] {
 	return s.(*Stream[T])
 }
 
-// Close closes every stream registered under this channel UUID. The channel
-// identity remains valid for reconstruction with NewEventChannelWithID.
-func (channel *EventChannel) Close() {
-	if channel == nil {
-		return
-	}
-
-	channel.mu.Lock()
-	if channel.closed {
-		channel.mu.Unlock()
-		return
-	}
-	channel.closed = true
-	channel.mu.Unlock()
-
-	defaultStore.removeChannel(channel.ID)
-}
-
+// removeChannel removes all streams associated with a channel UUID.
+// It releases the registry lock before closing streams to avoid holding storage
+// locks while stream shutdown notifies subscribers.
 func (store *streamStore) removeChannel(id uuid.UUID) {
 	store.mu.Lock()
 	removed := make([]interface{ Close() }, 0)
@@ -138,6 +99,7 @@ func (store *streamStore) removeChannel(id uuid.UUID) {
 		if key.ChannelID == id {
 			removed = append(removed, value.(interface{ Close() }))
 			delete(store.streams, key)
+			}
 		}
 	}
 	store.mu.Unlock()
