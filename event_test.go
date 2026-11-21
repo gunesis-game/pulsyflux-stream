@@ -10,7 +10,7 @@ func TestNewEventRejectsUnknownRedactionPolicyPath(t *testing.T) {
 	type payload struct {
 		Email string `json:"email"`
 	}
-	if _, err := NewEvent[payload](NewRedactionRedactionPolicy("emali")); err == nil {
+	if _, err := NewEvent[payload](NewRedactionPolicy("emali")); err == nil {
 		t.Fatal("expected invalid redactionPolicy path error")
 	}
 }
@@ -19,10 +19,10 @@ func TestRedactionPolicyUsesJSONFieldNames(t *testing.T) {
 	type payload struct {
 		AccessToken string `json:"access_token"`
 	}
-	if _, err := NewEvent[payload](NewRedactionRedactionPolicy("access_token")); err != nil {
+	if _, err := NewEvent[payload](NewRedactionPolicy("access_token")); err != nil {
 		t.Fatalf("JSON field path should be accepted: %v", err)
 	}
-	if _, err := NewEvent[payload](NewRedactionRedactionPolicy("AccessToken")); err == nil {
+	if _, err := NewEvent[payload](NewRedactionPolicy("AccessToken")); err == nil {
 		t.Fatal("Go field name should not match JSON-tagged field")
 	}
 }
@@ -31,7 +31,7 @@ func TestRedactionPolicyRejectsEmptyAndDuplicatePaths(t *testing.T) {
 	type payload struct {
 		Value string `json:"value"`
 	}
-	for _, redactionPolicy := range []RedactionPolicy{NewRedactionRedactionPolicy(""), NewRedactionRedactionPolicy("value", "value"), NewRedactionRedactionPolicy("value..nested")} {
+	for _, redactionPolicy := range []RedactionPolicy{NewRedactionPolicy(""), NewRedactionPolicy("value", "value"), NewRedactionPolicy("value..nested")} {
 		if _, err := NewEvent[payload](redactionPolicy); err == nil {
 			t.Fatalf("expected redactionPolicy validation failure for %#v", redactionPolicy)
 		}
@@ -46,7 +46,7 @@ func TestEventSerializationRedactsNestedSliceAndDoesNotMutateData(t *testing.T) 
 	type payload struct {
 		Users []user `json:"users"`
 	}
-	event, err := NewEvent[payload](NewRedactionRedactionPolicy("users.password"))
+	event, err := NewEvent[payload](NewRedactionPolicy("users.password"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ func TestEventDeserializeRoundTripRedactedData(t *testing.T) {
 		ID       string `json:"id"`
 		Secret   string `json:"secret"`
 	}
-	redactionPolicy := NewRedactionRedactionPolicy("secret")
+	redactionPolicy := NewRedactionPolicy("secret")
 	event, err := NewEvent[payload](redactionPolicy)
 	if err != nil {
 		t.Fatal(err)
@@ -124,7 +124,7 @@ func TestSetDataRejectsNonJSONPayloadAndKeepsPreviousData(t *testing.T) {
 		Value string
 		Func  any
 	}
-	event, err := NewEvent[payload](NewRedactionRedactionPolicy())
+	event, err := NewEvent[payload](NewRedactionPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
