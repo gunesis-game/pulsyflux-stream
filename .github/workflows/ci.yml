@@ -76,6 +76,8 @@ jobs:
           if [ -n "$files" ]; then
             echo "These Go files need gofmt:"
             echo "$files"
+            echo "Formatting diff:"
+            gofmt -d $files
             exit 1
           fi
       - name: Run race tests and collect coverage
