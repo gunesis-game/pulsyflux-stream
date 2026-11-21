@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"sync"
-	"time"
 )
 
 var (
@@ -133,8 +132,8 @@ func nilContext(ctx context.Context) bool {
 	return ctx == nil
 }
 
-// Publish sends event to every active subscriber. A zero timestamp is filled
-// with the current time. With no subscribers, Publish succeeds.
+// Publish sends event to every active subscriber. Event timestamps are set
+// during construction and are internal to Event. With no subscribers, Publish succeeds.
 func (s *Stream[T]) Publish(event Event[T]) error {
 	// Serialize publishers: the buffer preflight and sends must be one
 	// critical section, otherwise concurrent publishers can overfill a
@@ -150,9 +149,6 @@ func (s *Stream[T]) Publish(event Event[T]) error {
 	}
 	if !event.dataSet {
 		return ErrUnsetEventData
-	}
-	if event.Time.IsZero() {
-		event.Time = time.Now()
 	}
 
 	// Preflight every buffer before sending so a slow subscriber never causes
