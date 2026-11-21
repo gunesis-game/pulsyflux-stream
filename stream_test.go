@@ -10,13 +10,12 @@ import (
 	"github.com/google/uuid"
 )
 
-func newTestEvent[T any](t *testing.T, name string, data T) Event[T] {
+func newTestEvent[T any](t *testing.T, data T) Event[T] {
 	t.Helper()
 	event, err := NewEvent[T](NewPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
-	event.Name = name
 	if err := event.SetData(data); err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +94,7 @@ func TestEventChannelsAreIsolated(t *testing.T) {
 	}
 	defer secondSub.Close()
 
-	if err := first.Publish(newTestEvent(t, "", isolatedEvent{Value: "first"})); err != nil {
+	if err := first.Publish(newTestEvent(t, isolatedEvent{Value: "first"})); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -204,7 +203,7 @@ func TestPublishToMultipleSubscribers(t *testing.T) {
 	}
 	defer b.Close()
 
-	want := newTestEvent(t, "created", "item-1")
+	want := newTestEvent(t, "item-1")
 	if err := s.Publish(want); err != nil {
 		t.Fatal(err)
 	}
@@ -231,11 +230,11 @@ func TestPublishIsAtomicWhenSubscriberIsFull(t *testing.T) {
 	slow, _ := s.Subscribe(context.Background())
 	defer slow.Close()
 
-	if err := s.Publish(newTestEvent(t, "", 1)); err != nil {
+	if err := s.Publish(newTestEvent(t, 1)); err != nil {
 		t.Fatal(err)
 	}
 	<-fast.Events()
-	if err := s.Publish(newTestEvent(t, "", 2)); !errors.Is(err, ErrSlowSubscriber) {
+	if err := s.Publish(newTestEvent(t, 2)); !errors.Is(err, ErrSlowSubscriber) {
 		t.Fatalf("got %v, want ErrSlowSubscriber", err)
 	}
 	select {
@@ -312,7 +311,7 @@ func TestConcurrentPublishAndSubscribe(t *testing.T) {
 		go func(base int) {
 			defer wg.Done()
 			for n := 0; n < 100; n++ {
-				err := s.Publish(newTestEvent(t, "", base*100 + n))
+				err := s.Publish(newTestEvent(t, base*100 + n))
 				if err != nil && !errors.Is(err, ErrSlowSubscriber) {
 					t.Errorf("Publish: %v", err)
 					return
