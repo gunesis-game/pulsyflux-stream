@@ -72,6 +72,61 @@ R_stream = { r in R_channel | r.stream_identity = resolved_stream_identity }
 
 The complete record scope for the runtime stream is therefore `R_stream`.
 
+## Identity scope and uniqueness
+
+The resolved stream identity is **channel-scoped**, not globally meaningful.
+
+The durable identity of a stream is the pair:
+
+```
+(resolved channel identity, resolved stream identity)
+```
+
+The channel is first resolved from the `TStream` base schema fingerprint. Only after that resolution may the stream schema identity be looked up, and that lookup is constrained to the resolved channel. The same stream schema may therefore be registered in two different channels and resolve to two different persisted stream instances, with distinct private stream UUIDs.
+
+A stream schema fingerprint by itself is not a globally unique stream key. Any storage key, catalog entry, cache, or index used for stream mappings must include the parent channel identity. This rule applies equally to recovery and record lookup.
+
+## Resolve-or-create contract
+
+The internal mapping operation is a durable, atomic **resolve-or-create** operation. It is not a separate consumer-visible create/open choice.
+
+### Channel mapping
+
+For `NewEventChannel[TStream]`:
+
+1. Derive the canonical `TStream` descriptor and its base fingerprint.
+2. Ask the schema-mediated system-of-record mapping contract to resolve-or-create the channel mapping for that fingerprint.
+3. If an entry exists, compare its stored canonical descriptor with the requested descriptor before restoring its private channel UUID and metadata.
+4. If no entry exists, atomically create one mapping and one private channel UUID.
+5. Return a usable runtime channel only after resolution/creation has succeeded.
+
+Concurrent constructions for the same canonical `TStream` identity must converge on the same persisted channel mapping and UUID. The storage operation must provide create-if-absent semantics (or equivalent transactional uniqueness); a read followed by an unprotected write is insufficient. A fingerprint hit with a different canonical descriptor is an identity conflict and must fail rather than silently reuse the mapping.
+
+Because durable resolution can fail, channel construction must expose that failure. The current pointer-only `NewEventChannel[TStream]() *EventChannel[TStream]` signature cannot report storage errors; the persistence-aware constructor contract therefore requires an error result, conventionally `(*EventChannel[TStream], error)`. This is an intentional API adjustment to be made when implementation begins, not a change made by this documentation update.
+
+### Stream mapping
+
+For `New[TStream, TEvent](channel, bufferSize)`:
+
+1. Derive the canonical stream descriptor and stream base identity using the `TStream` family context and `TEvent` schema.
+2. Resolve-or-create the stream mapping using **both** the already-resolved parent channel identity and the stream schema identity.
+3. Validate the stored canonical descriptor on a fingerprint match.
+4. Restore the mapped private stream UUID and metadata, or atomically create one mapping and UUID if absent.
+5. Register the resulting typed runtime stream in the channel's in-memory registry.
+
+Concurrent attempts to resolve the same stream identity within one channel must converge on one persisted mapping. The existing in-memory duplicate-registration rule remains in force: a second registration of the same event type in the same runtime channel returns `ErrDuplicateStream`. A matching stream schema in a different channel is not a duplicate.
+
+### Failure and consistency rules
+
+- A mapping is either fully persisted and recoverable or treated as absent; partial metadata must not be accepted as a valid mapping.
+- Storage errors, descriptor mismatches, corrupt mapping metadata, and UUID conflicts are returned to the constructor as errors. They must not be converted into a fresh identity, because doing so could orphan existing records.
+- A failed resolve/create must not leave a partially initialized runtime channel or stream registered in memory.
+- Mapping creation must be safe across goroutines and across independent runtime instances/processes that share the same system of record. The storage implementation is responsible for the atomic uniqueness boundary.
+- The schema layer derives and validates canonical identities and orchestrates the generic mapping contract. Storage accepts those identities/descriptors and private IDs; it does not reflect over Go types or decide schema equivalence.
+- No public Find/Open/Search API is introduced. Constructors remain the consumer-facing recovery boundary.
+
+The precise on-disk catalog layout, locking mechanism, transaction primitive, and storage ownership/lifecycle are intentionally left to the storage design. They must implement these observable guarantees without changing the identity scope above.
+
 ### 3. The records in scope
 
 After channel and stream resolution, the system of record has enough identity information to retrieve the event records for that stream. Those records retain their persisted ordering and metadata, including the channel-wide sequence, event-creation timestamp, private instance identities, and schema fingerprints.
