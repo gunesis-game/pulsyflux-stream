@@ -67,7 +67,7 @@ func TestEventChannelRegistersTypedStreams(t *testing.T) {
 	}
 	if first.bufferSize != 7 || second.bufferSize != 13 || third.bufferSize != 19 {
 		t.Fatalf(
-			"unexpected buffer sizes: first=%d second=%d",
+			"unexpected buffer sizes: first=%d second=%d third=%d",
 			first.bufferSize,
 			second.bufferSize,
 			third.bufferSize,
