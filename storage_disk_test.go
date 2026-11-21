@@ -4,9 +4,9 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
-	"io"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,21 +24,36 @@ func testDiskRecord(seq uint64) diskRecord {
 func TestDiskRecordRoundTripChecksum(t *testing.T) {
 	r := testDiskRecord(1)
 	frame, err := encodeDiskRecord(r)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	got, err := decodeDiskRecord(frame)
-	if err != nil { t.Fatal(err) }
-	if got.EventID != r.EventID || got.Sequence != r.Sequence || !bytes.Equal(got.Payload, r.Payload) { t.Fatalf("round trip mismatch: %#v", got) }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.EventID != r.EventID || got.Sequence != r.Sequence || !bytes.Equal(got.Payload, r.Payload) {
+		t.Fatalf("round trip mismatch: %#v", got)
+	}
 	frame[len(frame)-1] ^= 0xff
-	if _, err := decodeDiskRecord(frame); !errors.Is(err, errRecordCorrupt) { t.Fatalf("checksum not detected: %v", err) }
+	if _, err := decodeDiskRecord(frame); !errors.Is(err, errRecordCorrupt) {
+		t.Fatalf("checksum not detected: %v", err)
+	}
 }
 
 func TestScanIncompleteTailAndRejectCorruption(t *testing.T) {
 	frame, err := encodeDiskRecord(testDiskRecord(1))
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	lastSequence, offset, tail, err := scanDiskRecords(bytes.NewReader(append(frame, []byte("PFS")...)))
-	if err != nil || lastSequence != 1 || offset != int64(len(frame)) || !tail { t.Fatalf("scan: lastSequence=%d offset=%d tail=%v err=%v", lastSequence, offset, tail, err) }
-	bad := append([]byte(nil), frame...); bad[0] = 'X'
-	if _, _, _, err := scanDiskRecords(bytes.NewReader(bad)); !errors.Is(err, errRecordCorrupt) { t.Fatalf("corruption accepted: %v", err) }
+	if err != nil || lastSequence != 1 || offset != int64(len(frame)) || !tail {
+		t.Fatalf("scan: lastSequence=%d offset=%d tail=%v err=%v", lastSequence, offset, tail, err)
+	}
+	bad := append([]byte(nil), frame...)
+	bad[0] = 'X'
+	if _, _, _, err := scanDiskRecords(bytes.NewReader(bad)); !errors.Is(err, errRecordCorrupt) {
+		t.Fatalf("corruption accepted: %v", err)
+	}
 }
 
 func TestScanDiskRecordsTracksSequenceWithBoundedState(t *testing.T) {
@@ -171,7 +186,6 @@ func TestDiskWriterRotationFlushFailureIsSticky(t *testing.T) {
 	}
 }
 
-
 func TestDiskWriterCloseFailureIsStable(t *testing.T) {
 	writer, err := openDiskWriter(t.TempDir(), diskWriterOptions{MaxSegmentBytes: 4096})
 	if err != nil {
@@ -191,7 +205,6 @@ func TestDiskWriterCloseFailureIsStable(t *testing.T) {
 		t.Fatalf("repeated Close changed result: first=%v second=%v", firstErr, secondErr)
 	}
 }
-
 
 func TestDiskWriterRecoversAfterRotationSegmentCreationFailure(t *testing.T) {
 	dir := t.TempDir()
@@ -315,7 +328,7 @@ func TestDiskWriterSyncEachAppendFlushesAcrossRotation(t *testing.T) {
 			t.Fatalf("read sequence %d before writer close: %v", expected, err)
 		}
 		if record.Sequence != expected {
-			t.Fatalf("read sequence=%d want=%d", record.Sequence, expected)
+			t.Fatalf("sequence=%d want=%d", record.Sequence, expected)
 		}
 	}
 	if _, err := reader.Next(); !errors.Is(err, io.EOF) {
@@ -330,30 +343,56 @@ func TestDiskWriterSyncEachAppendFlushesAcrossRotation(t *testing.T) {
 func TestDiskWriterSequenceTailRecoveryAndRollover(t *testing.T) {
 	dir := t.TempDir()
 	w, err := openDiskWriter(dir, diskWriterOptions{MaxSegmentBytes: 220})
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	ch, st := uuid.New(), uuid.New()
 	for i := 1; i <= 4; i++ {
 		seq, _, err := w.Append(ch, st, "schema", "event", time.Now(), []byte(`{"payload":"large enough to cause a segment rollover"}`))
-		if err != nil { t.Fatal(err) }
-		if seq != uint64(i) { t.Fatalf("sequence=%d want=%d", seq, i) }
+		if err != nil {
+			t.Fatal(err)
+		}
+		if seq != uint64(i) {
+			t.Fatalf("sequence=%d want=%d", seq, i)
+		}
 	}
-	if err := w.Close(); err != nil { t.Fatal(err) }
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
 	files, err := diskSegments(dir)
-	if err != nil { t.Fatal(err) }
-	if len(files) < 2 { t.Fatalf("expected rollover, found %d segment(s)", len(files)) }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) < 2 {
+		t.Fatalf("expected rollover, found %d segment(s)", len(files))
+	}
 
 	last := files[len(files)-1]
 	f, err := os.OpenFile(last, os.O_APPEND|os.O_WRONLY, 0o640)
-	if err != nil { t.Fatal(err) }
-	if _, err := f.Write([]byte("PFS")); err != nil { t.Fatal(err) }
-	if err := f.Close(); err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write([]byte("PFS")); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	w, err = openDiskWriter(dir, diskWriterOptions{MaxSegmentBytes: 4096})
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	next, _, err := w.Append(ch, st, "schema", "event", time.Now(), []byte(`{"payload":2}`))
-	if err != nil { t.Fatal(err) }
-	if next != 5 { t.Fatalf("recovered sequence=%d want=5", next) }
-	if err := w.Close(); err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next != 5 {
+		t.Fatalf("recovered sequence=%d want=5", next)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
 	_ = filepath.Base(last)
 }
 
@@ -387,26 +426,41 @@ func TestDiskWriterRecoversSequenceAcrossEmptySegment(t *testing.T) {
 func TestDiskReaderSequentialAcrossSegments(t *testing.T) {
 	dir := t.TempDir()
 	w, err := openDiskWriter(dir, diskWriterOptions{MaxSegmentBytes: 220})
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	ch, st := uuid.New(), uuid.New()
 	for i := 1; i <= 4; i++ {
 		seq, _, err := w.Append(ch, st, "schema", "event", time.Now(), []byte(`{"payload":"large enough to cause a segment rollover"}`))
-		if err != nil { t.Fatal(err) }
-		if seq != uint64(i) { t.Fatalf("write sequence=%d want=%d", seq, i) }
+		if err != nil {
+			t.Fatal(err)
+		}
+		if seq != uint64(i) {
+			t.Fatalf("write sequence=%d want=%d", seq, i)
+		}
 	}
-	if err := w.Close(); err != nil { t.Fatal(err) }
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	r, err := openDiskReader(dir)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer r.Close()
 	for expected := uint64(1); expected <= 4; expected++ {
 		record, err := r.Next()
-		if err != nil { t.Fatalf("read %d: %v", expected, err) }
-		if record.Sequence != expected { t.Fatalf("sequence=%d want=%d", record.Sequence, expected) }
+		if err != nil {
+			t.Fatalf("read %d: %v", expected, err)
+		}
+		if record.Sequence != expected {
+			t.Fatalf("sequence=%d want=%d", record.Sequence, expected)
+		}
 	}
-	if _, err := r.Next(); !errors.Is(err, io.EOF) { t.Fatalf("expected EOF, got %v", err) }
+	if _, err := r.Next(); !errors.Is(err, io.EOF) {
+		t.Fatalf("expected EOF, got %v", err)
+	}
 }
-
 
 func TestDiskReaderSkipsEmptySegmentsAndRejectsSequenceRegression(t *testing.T) {
 	dir := t.TempDir()
@@ -560,7 +614,6 @@ func TestDiskReaderCloseClosesActiveSegment(t *testing.T) {
 	}
 }
 
-
 func TestDiskSegmentsRejectNumberingGaps(t *testing.T) {
 	for _, names := range [][]string{
 		{"segment-000002.pfs"},
@@ -640,7 +693,6 @@ func TestDiskWriterReopenAcrossSegmentsReaderContinuity(t *testing.T) {
 		t.Fatalf("expected EOF after reopened stream, got %v", err)
 	}
 }
-
 
 func TestDiskWriterRejectsIncompleteTailInNonActiveSegment(t *testing.T) {
 	dir := t.TempDir()
