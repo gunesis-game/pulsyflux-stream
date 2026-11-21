@@ -15,8 +15,12 @@ permissions:
 
 jobs:
   test:
-    name: Test and build
-    runs-on: ubuntu-latest
+    name: Test and build (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -26,6 +30,7 @@ jobs:
           go-version: '1.27.x'
           cache: true
       - name: Verify formatting
+        shell: bash
         run: |
           files="$(gofmt -l .)"
           if [ -n "$files" ]; then
@@ -33,8 +38,12 @@ jobs:
             echo "$files"
             exit 1
           fi
-      - name: Run tests
+      - name: Run race tests (Linux)
+        if: runner.os == 'Linux'
         run: go test -race -cover ./...
+      - name: Run tests (Windows)
+        if: runner.os == 'Windows'
+        run: go test -cover ./...
       - name: Run vet
         run: go vet ./...
       - name: Build package
