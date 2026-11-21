@@ -3,7 +3,7 @@ package stream
 import (
 	"bytes"
 	"encoding/json"
-	"io""
+	"io"
 	"errors"
 	"os"
 	"path/filepath"
