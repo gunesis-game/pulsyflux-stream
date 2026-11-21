@@ -21,7 +21,7 @@ Provide a small, concurrency-safe, typed Go event stream, with a clear path towa
 
 ## Event lifecycle/API
 Public API is intended to include:
-- NewRedactionRedactionPolicy(exclude ...string) RedactionPolicy
+- NewRedactionPolicy(exclude ...string) RedactionPolicy
 - NewEvent[T](redactionPolicy RedactionPolicy) (Event[T], error)
 - (*Event[T]).SetData(T) error
 - (*Event[T]).Data() T
