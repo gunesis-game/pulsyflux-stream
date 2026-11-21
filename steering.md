@@ -29,6 +29,13 @@ Maintain a small, typed, concurrency-safe Go event stream. Event redaction is im
 - Start with sequential scan and rebuildable/minimal indexes. Do not add SQL, distributed infrastructure, or a public storage API without a concrete requirement and an agreed contract.
 - Avoid parallel public event, stream, channel, or storage-record models unless a concrete boundary requires one.
 
+## Development and release compatibility
+- `main` is the development line. Make the public API and source changes required by the agreed design, including intentional breaking changes to existing consumer-facing interfaces.
+- Do not preserve, emulate, or constrain a required new API merely to maintain backward compatibility on `main`, unless the user explicitly requests a compatibility requirement.
+- Existing consumers are protected by the release workflow, not by freezing the development API. The configured release CI is manually triggered by the user as the controlled validation step before release; do not trigger or assume a release run unless explicitly instructed.
+- Keep ordinary development CI and release CI distinct. A passing development CI run does not imply release validation or publication. Never claim existing consumers are affected by un-released changes on `main`.
+- When a deliberate breaking API change is made, update affected source, tests, examples, and documentation together, and clearly record the API change and its verification state in the current handoff.
+
 ## Public API constraints
 Expected event API:
 - NewRedactionPolicy(exclude ...string) RedactionPolicy
