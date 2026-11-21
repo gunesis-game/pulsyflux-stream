@@ -148,6 +148,52 @@ Do not introduce a public storage API until the internal storage contract and du
 - Markdown-only changes must not trigger CI. Do not claim a CI run occurred for this documentation-only update.
 - Do not claim local Go tests were run unless a local checkout and execution actually occurred. GitHub Actions is the verified source for the latest test/build results.
 
+## Mandatory iteration, analysis, and session handoff maintenance
+
+This section is a required operating procedure for every AI implementation session. The purpose is to make the repository, especially this file, the durable source of truth so work can be continued in a fresh AI session without relying on chat history.
+
+### Required iteration sequence
+1. Inspect the current `main` HEAD, recent commits, working implementation, and relevant tests before making changes.
+2. Implement one coherent change or a clearly scoped set of related changes.
+3. Commit and push directly to `main`, unless the user explicitly requests another workflow.
+4. Identify the GitHub Actions run for the exact pushed commit. Wait for it to finish and inspect the run conclusion and individual job/step results and logs. Never infer success from a missing, queued, partial, or unrelated run.
+5. If CI fails, analyze the failure and its root cause. Fix the underlying issue rather than suppressing, bypassing, or weakening the check. Commit and push the correction, then verify the new run against the new exact HEAD. Preserve the failed run and its cause in the handoff as useful history.
+6. After the code review and CI analysis, update this `steering.md` in a separate documentation commit with the current verified state and next-session handoff. Do this whether CI passed or failed; clearly distinguish a resolved failure from an outstanding failure. If a correction is still in progress or CI has not completed, record that explicitly rather than presenting the iteration as complete.
+7. Verify the steering update is committed to `main`. A Markdown-only steering update follows repository policy and must not trigger CI; do not claim that it did or that a CI run passed for that documentation-only commit.
+
+### Mandatory post-CI analysis
+A CI result is not the end of an iteration. After inspecting CI, review the implementation and test coverage and deliberately identify:
+- Any correctness, reliability, security, performance, maintainability, or test-coverage gaps revealed by the change or review.
+- Any missing edge cases, untested failure paths, incomplete design decisions, technical debt, or assumptions that need validation.
+- Any substantial follow-on work that should be planned before implementation, including dependencies, scope boundaries, risks, and decisions that require user input.
+- Whether the next task is safe to start now, should be split into smaller tasks, or must be deferred until a prerequisite is reviewed or completed.
+
+Do not invent gaps merely to fill the handoff. If the review finds no material gap, state that the review found none and explain briefly what was checked. Distinguish verified facts from hypotheses and recommendations.
+
+### Required contents of every session handoff
+Update the latest authoritative checkpoint in this file after every implementation iteration and before ending or handing off a session. Include:
+- Repository and branch, exact latest HEAD commit SHA, and a concise description of the implementation changes.
+- The relevant CI run URL and run ID, exact commit SHA tested, final status/conclusion, and the meaningful job/step results. If no run exists or it is pending, state that plainly.
+- Any CI failures, their diagnosed causes, the corrective commits, and whether the correction has been verified by a subsequent run.
+- A concise analysis of the current implementation state, including what is complete and what remains unverified.
+- Discovered gaps, known limitations, deferred decisions, and risks. Mark each as confirmed or suspected where that distinction matters.
+- The recommended next task (or explicit statement that no immediate task is recommended), why it is next, and a practical implementation plan.
+- Prerequisites and dependencies, files/components likely involved, tests or acceptance criteria needed, and any constraints or work that must not be started yet.
+- Any architecture documentation reviewed or updated, including whether `docs/storage_disk.md` remains consistent with the implementation.
+
+Keep the newest checkpoint authoritative. Preserve important historical decisions, constraints, and unresolved issues, but clearly mark older checkpoints as superseded when later facts replace them. Remove stale instructions that could mislead a new session only when their relevant history and rationale are preserved.
+
+### Session interruption and fresh-session rule
+If the AI session may end, context may be exhausted, or work is being handed to another session, update this file before stopping. The handoff must be sufficient for a new AI session to:
+1. Verify the repository state and latest CI result independently.
+2. Understand what was changed and why.
+3. Know what was found during post-change analysis.
+4. Start the recommended next task without asking the user to reconstruct prior chat context.
+
+If implementation is mid-flight, record the exact stopping point, uncommitted or unpushed work if any, pending checks, known risks, and the safest next action. Never describe uncommitted work as pushed, or unverified work as tested.
+
+**Completion rule:** An implementation iteration is not fully handed off until its code changes, verified (or accurately reported pending/failed) CI outcome, post-CI analysis, and actionable next-session checkpoint are recorded in this repository.
+
 ## Architecture documentation maintenance — mandatory AI instruction
 
 - Treat [`docs/storage_disk.md`](docs/storage_disk.md) as the canonical, maintained architecture guide for `storage_disk.go`. It is an implementation document with detailed Mermaid diagrams, not optional supplementary prose.
