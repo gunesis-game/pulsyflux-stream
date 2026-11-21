@@ -6,6 +6,27 @@ import (
 	"testing"
 )
 
+func TestNewEventNormalizesRedactionPathWhitespace(t *testing.T) {
+	type payload struct {
+		Value string `json:"value"`
+	}
+
+	event, err := NewEvent[payload](NewRedactionPolicy(" value "))
+	if err != nil {
+		t.Fatalf("NewEvent rejected surrounding whitespace: %v", err)
+	}
+	if err := event.SetData(payload{Value: "secret"}); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := event.serialize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "secret") {
+		t.Fatalf("normalized redaction path did not redact data: %s", raw)
+	}
+}
+
 func TestNewEventRejectsUnknownRedactionPolicyPath(t *testing.T) {
 	type payload struct {
 		Email string `json:"email"`
