@@ -64,35 +64,36 @@ Do not introduce a public storage API until the internal storage contract and du
 - CI should print offending filenames when formatting fails; do not hide gofmt output.
 
 
-## Session handoff — storage design and schema fingerprints (2026-11-21)
+## Session handoff — storage writer and reader checkpoint (2026-11-21)
 
-### Decisions agreed with the user
-- Public API/type hierarchy remains `Channel[TStream]`, `Stream[TEvent]`, and `Event[TData]`. These are the existing abstractions; do not invent parallel public models.
-- Instance UUIDs for event, stream, and channel are internal package/infrastructure details. Consumers should not depend on or persist these IDs themselves.
-- Keep instance identity distinct from structural schema identity. Schema fingerprints are deterministic and represent definitions; instance UUIDs identify concrete runtime instances.
-- Schema fingerprints should be derived from canonical type structure, not SQL table schemas. The SQL analogy was illustrative only.
-- Storage design should focus on I/O/disk operation taxonomy and lifecycle: event capture, encode, append, flush/sync, read/scan/load, lookup, replay, and maintenance/recovery.
-- Initial storage direction: append-only segmented files, explicit versioned framing/checksum, durability policy, sequence-based ordering, minimal/rebuildable indexes, and recovery-safe tail handling. Avoid SQL/distributed infrastructure until justified.
-- Replay should deliver stored events via existing stream/channel abstractions and avoid being recorded again by the same recorder by default.
+### Current branch and checkpoint
+- Continue directly on `main` in `gunesis-game/pulsyflux-stream`; do not create a branch unless the user asks.
+- Latest verified GitHub commit from this session's inspection: `f401b3a69fd4e4fb9a17cce666925e11b3f9bcba` (`fix: correct malformed io test import`). Confirm HEAD and CI afresh; prior chat statements about run #127 passing may be unreliable.
+- Earlier commits in this storage slice include `d1cb667` (multi-segment reader), `7fc4fb4` (reader tests), and subsequent test import corrections. Verify actual tree contents, not only commit messages.
+- Prior attempts to add reader tests introduced malformed imports (escaped newline and `io""`) and multiple corrective commits. Inspect `storage_disk_test.go` carefully and ensure formatting/imports are actually valid.
 
-### Implementation progress
-- On `main`, added private structural fingerprint groundwork in `schema.go` and focused tests in `schema_test.go`.
-- Updated this steering file to direct future storage work and preserve public API encapsulation.
-- Fingerprint tests are intended to cover determinism, structural/tag changes, field-order normalization, layer distinction, and recursive types.
-- Fingerprints are currently structural hints: custom JSON marshal/unmarshal behavior and external codec identity are not represented. They do not imply compatibility or migration support.
-- Previous session reported CI checks passing (gofmt, race-enabled tests/coverage, vet, build); in the next session, verify the actual latest main commit and CI state before relying on that report.
+### Implemented storage groundwork (verify from current files before relying on this)
+- `storage_disk.go`: versioned framed record codec, CRC checksum, scan/recovery logic, append-only segment writer, rollover, flush/sync/close, and sequential multi-segment reader.
+- `storage_disk_test.go`: codec/checksum, incomplete-tail handling, writer sequence recovery/rollover, empty-segment recovery, and multi-segment reader tests.
+- Storage IDs and schema fingerprints remain private. Keep public event/stream/channel API unchanged.
+- Writer sequence recovery was hardened to scan all segments and reject sequence regressions and incomplete tails in non-active segments.
+- Reader scans segments sequentially, detects ordering violations and corruption, and returns `io.EOF` at end. Confirm current behavior against actual source; test limitations/edge cases remain.
 
-### Next session: continue implementation on main
-1. Re-fetch repository state and `steering.md`; verify current `main`, recent commits, and CI.
-2. Inspect existing `Event[TData]`, `Stream[TEvent]`, `Channel[TStream]`, redaction/serialization, and repository file structure. Avoid assuming the earlier proposed types or disk layout are final.
-3. Design the physical on-disk record format before coding: canonical framing, format version, schema fingerprint, internal event/stream/channel identities, sequence, timestamp, codec/type metadata, payload bytes, and checksum. Decide which fields are actually required and document tradeoffs.
-4. Define segment lifecycle and durability semantics: active segment, rollover trigger, buffering, Flush versus Sync, incomplete-tail recovery, and middle-of-file corruption policy.
-5. Implement the smallest vertical slice: internal writer appending versioned records to an append-only segment, with tests for round-trip encoding, corruption detection, partial-tail recovery, and ordering. Keep the public API unchanged.
-6. Run required checks locally if possible: gofmt validation, `go test -race -cover ./...`, `go vet ./...`, and `go build ./...`; then verify CI.
+### CI status caution
+- Chat history claims CI run #127 passed, but this checkpoint has not independently confirmed that run's completed job details. Verify the run on GitHub before treating it as green.
+- CI workflow formats Go sources and then checks formatting, race-enabled tests/coverage, vet, and build. Avoid modifying CI just to hide failures. Diagnose logs, fix source/tests, commit to main, and confirm the new run.
 
-### Guardrails for the next session
-- Start from actual repository code; preserve existing type definitions and behavior.
-- No exported UUID/schema fingerprint accessors and no consumer-facing persistence IDs.
-- Do not start with a database or full indexing engine; establish the record/segment contract first.
-- Do not silently drop middle-of-file corruption. Incomplete trailing writes may be recoverable at a valid record boundary; report corruption.
-- Treat this handoff as a continuation checkpoint, not permission to implement beyond the next agreed design step without validating assumptions.
+### Immediate next-session steps
+1. Fetch `steering.md`, branch HEAD, recent commits, workflow runs, and the complete current source/tests. Verify the live repository state.
+2. Inspect `storage_disk.go` and `storage_disk_test.go`; run local commands if a working checkout is available: `gofmt -w storage_disk.go storage_disk_test.go`, `gofmt -l .`, `go test -race -cover ./...`, `go vet ./...`, and `go build ./...`. If no local environment is available, use CI logs and be explicit about what cannot be run.
+3. Review reader correctness: empty segments; filenames and segment numbering gaps/duplicates; sequence monotonicity across segment boundaries; incomplete tail handling; complete-frame corruption; close semantics; and whether loading an entire segment into memory is acceptable.
+4. Fix reader/writer edge cases with focused tests, commit directly to `main`, and wait for CI. Do not claim green until the run's actual status and job conclusions are confirmed.
+5. Only after reader reliability is established, design a rebuildable minimal index (likely sequence-to-segment/offset), with no database or public storage API. Discuss the contract before broad implementation.
+
+### Guardrails
+- Preserve the agreed public API and identity boundaries: consumers must not inspect or generate event/stream/channel UUIDs or schema fingerprints.
+- No parallel public models, no public storage API, and no persistence IDs exposed to consumers.
+- Sequence numbers are authoritative order; timestamps are metadata.
+- Redact before persistence; never imply excluded values can be recovered.
+- Incomplete trailing writes may be recovered only under explicit frame-boundary rules; middle corruption must fail, not be skipped.
+- Keep this handoff actionable and factual; confirm claims from the live repo in the next session.
