@@ -100,7 +100,7 @@ func TestSchemaRedactionAppliesPathsToJSONCopy(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	redacted, err := redactSchemaJSON(raw, []string{"users.password"})
+	redacted, err := redactSchemaJSON(raw, schemaRedactionPolicy{exclude: []string{"users.password"}})
 	if err != nil {
 		t.Fatal(err)
 	}
