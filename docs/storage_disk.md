@@ -22,7 +22,7 @@ This is the high-level relationship between the types and the filesystem. The ca
 
 ```mermaid
 flowchart TB
-    Caller["Private package caller"] -->|"Append(channelID, streamID, schema, type, time, payload)"| Writer["diskWriter"]
+    Caller["Private package caller"] -->|"Append(channelID, streamID, schemas, time, payload)"| Writer["diskWriter"]
     Caller -->|"openDiskReader(dir)"| Reader["diskReader"]
 
     subgraph Codec["Record codec"]
@@ -99,13 +99,13 @@ flowchart LR
 
 **Limits and validation**
 
-- `recordVersion` is currently `1`.
+- `recordVersion` is currently `2`. Version 1 records are intentionally rejected; this schema change is not an in-place reinterpretation or migration.
 - `maxRecordBytes` is 64 MiB and applies to the final encoded JSON body, after `json.RawMessage` whitespace compaction and HTML escaping.
 - The encoder preflights the exact JSON body size before marshaling the caller-provided payload. It validates the raw JSON and counts compaction/escaping without allocating an intermediate encoded payload; oversized bodies are rejected before the full JSON body or frame is allocated.
 - The preflight preserves Go `encoding/json` version-1 encoding semantics, including field order, string escaping, `RawMessage` compaction, and HTML escaping. The stored frame format and checksum are unchanged.
 - The decoder requires the frame length to match the declared body length exactly.
 - A complete frame with bad magic, invalid length, checksum mismatch, invalid JSON, unsupported version, or missing required fields is rejected.
-- Required record fields are version, event ID, stream ID, channel ID, sequence, timestamp, schema fingerprint, type, and payload.
+- Required record fields are version, event ID, stream ID, channel ID, sequence, timestamp, the six schema fingerprints (event/stream/channel base and effective), and payload.
 - The payload is a `json.RawMessage`, so it is embedded as JSON rather than quoted as a string.
 
 ### Record data and identity boundaries
@@ -116,7 +116,7 @@ flowchart LR
 - **Routing / ownership identity:** `StreamID` and `ChannelID`
 - **Ordering:** `Sequence`
 - **Metadata:** `Timestamp`
-- **Schema/type metadata:** `SchemaFingerprint` and `Type`
+- **Schema metadata:** `EventBaseFingerprint`, `EventEffectiveFingerprint`, `StreamBaseFingerprint`, `StreamEffectiveFingerprint`, `ChannelBaseFingerprint`, and `ChannelEffectiveFingerprint`
 - **Event content:** `Payload`
 
 These are storage fields, not a promise that private UUIDs or schema fingerprints are exposed through a public API. The storage layer preserves the identity metadata it is given. Redaction must happen before the payload reaches this layer; the writer itself does not redact event data.
