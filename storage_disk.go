@@ -129,14 +129,37 @@ func openDiskWriter(dir string, opts diskWriterOptions) (*diskWriter, error) {
 	}
 	last := paths[len(paths)-1]
 	w.segment = segmentNum(last)
-	f, err := os.OpenFile(last, os.O_RDWR, 0o640)
-	if err != nil { return nil, err }
-	records, valid, tail, err := scanDiskRecords(f)
-	if err != nil { f.Close(); return nil, err }
-	if tail { if err := f.Truncate(valid); err != nil { f.Close(); return nil, err } }
-	if len(records) > 0 { w.nextSequence = records[len(records)-1].Sequence }
-	if _, err := f.Seek(0, io.SeekEnd); err != nil { f.Close(); return nil, err }
-	w.file, w.buf, w.size = f, bufio.NewWriter(f), valid
+	if w.segment == 0 {
+		return nil, fmt.Errorf("stream: invalid segment filename %q", filepath.Base(last))
+	}
+	// Recover sequence across every segment, not just the active segment.
+	// An empty active segment can exist after a rollover interrupted an append.
+	for i, path := range paths {
+		f, err := os.Open(path)
+		if err != nil { return nil, err }
+		records, valid, tail, scanErr := scanDiskRecords(f)
+		closeErr := f.Close()
+		if scanErr != nil { return nil, scanErr }
+		if closeErr != nil { return nil, closeErr }
+		if tail && i != len(paths)-1 {
+			return nil, fmt.Errorf("%w: incomplete tail in non-active segment %q", errRecordCorrupt, filepath.Base(path))
+		}
+		for _, record := range records {
+			if record.Sequence <= w.nextSequence {
+				return nil, fmt.Errorf("%w: non-increasing sequence across segments", errRecordCorrupt)
+			}
+			w.nextSequence = record.Sequence
+		}
+		if i == len(paths)-1 {
+			f, err := os.OpenFile(path, os.O_RDWR, 0o640)
+			if err != nil { return nil, err }
+			if tail {
+				if err := f.Truncate(valid); err != nil { f.Close(); return nil, err }
+			}
+			if _, err := f.Seek(0, io.SeekEnd); err != nil { f.Close(); return nil, err }
+			w.file, w.buf, w.size = f, bufio.NewWriter(f), valid
+		}
+	}
 	return w, nil
 }
 
