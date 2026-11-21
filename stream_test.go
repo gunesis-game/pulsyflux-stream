@@ -264,7 +264,7 @@ func TestContextCancellationUnsubscribes(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("subscription was not closed after context cancellation")
 	}
-	if err := s.Publish(newTestEvent(t, "", 1)); err != nil {
+	if err := s.Publish(newTestEvent(t, 1)); err != nil {
 		t.Fatal(err)
 	}
 }
