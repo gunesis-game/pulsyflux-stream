@@ -55,7 +55,7 @@ func TestDiskWriterAppendFailureIsSticky(t *testing.T) {
 		t.Fatal(err)
 	}
 	injected := errors.New("injected disk write failure")
-	writer.buf = bufio.NewWriter(failingDiskOutput{err: injected})
+	writer.buf = bufio.NewWriterSize(failingDiskOutput{err: injected}, 1)
 
 	sequence, _, firstErr := writer.Append(uuid.New(), uuid.New(), "schema", "event", time.Now(), []byte(`{"v":1}`))
 	if sequence != 0 || !errors.Is(firstErr, injected) {
