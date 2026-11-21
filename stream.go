@@ -67,7 +67,7 @@ type Stream[T any] struct {
 	nextID     uint64
 	subs       map[uint64]*subscriber[T]
 	bufferSize int
-	closed      bool
+	closed     bool
 }
 
 // New creates a stream with bufferSize slots per subscriber and registers it
