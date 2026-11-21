@@ -271,8 +271,7 @@ type diskWriterOptions struct {
 	SyncEachAppend  bool
 }
 
-// diskWriter is private append-only segment I/O. Payload must already be
-// serialized and redacted by Event's private serialization boundary.
+// diskWriter is private append-only segment I/O. Payload must already be serialized and redacted by the schema adapter.
 type diskWriter struct {
 	mu           sync.Mutex
 	dir          string

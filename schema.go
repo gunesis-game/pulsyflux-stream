@@ -8,49 +8,129 @@ import (
 	"reflect"
 	"sort"
 	"strings"
-	"time"
 )
 
 const schemaFingerprintVersion = "pulsyflux-schema-v1"
 
-// eventEnvelope is the private wire representation shared by event persistence
-// and replay. Redaction policy is supplied by the registered stream at decode time.
-type eventEnvelope struct {
-	Type string          `json:"type"`
-	Data json.RawMessage `json:"data"`
-	Time time.Time       `json:"time"`
+// validateSchemaData checks whether a value can be represented as JSON.
+func validateSchemaData[T any](data T) error {
+	_, err := json.Marshal(data)
+	return err
 }
 
-// eventTypeName derives the stable in-process type label used by the event envelope.
-func eventTypeName[T any]() string {
-	t := reflect.TypeOf((*T)(nil)).Elem()
-	for t.Kind() == reflect.Pointer {
-		t = t.Elem()
-	}
-	if t.Name() != "" {
-		return t.Name()
-	}
-	return t.String()
+type schemaRedactionPolicy struct {
+	exclude []string
 }
 
-// validateEventData checks JSON encodability at the schema boundary without
-// retaining an encoded copy of the payload.
-func validateEventData[T any](data T) error {
-	if _, err := json.Marshal(data); err != nil {
-		return fmt.Errorf("invalid event data: %w", err)
+func newSchemaRedactionPolicy(t reflect.Type, paths []string) (schemaRedactionPolicy, error) {
+	normalized, err := normalizeSchemaRedactionPaths(t, paths)
+	if err != nil {
+		return schemaRedactionPolicy{}, err
 	}
-	return nil
+	return schemaRedactionPolicy{exclude: normalized}, nil
 }
 
-// redactPath removes an exclusion path from the JSON-shaped payload copy.
-func redactPath(value any, parts []string) {
+// normalizeSchemaRedactionPaths validates and copies JSON field paths for a
+// particular data shape. It is independent of Event, Stream, and Channel.
+func normalizeSchemaRedactionPaths(t reflect.Type, paths []string) ([]string, error) {
+	normalized := append([]string(nil), paths...)
+	seen := make(map[string]struct{}, len(normalized))
+	for i, rawPath := range normalized {
+		path := strings.TrimSpace(rawPath)
+		if path == "" {
+			return nil, fmt.Errorf("empty exclusion path")
+		}
+		if _, duplicate := seen[path]; duplicate {
+			return nil, fmt.Errorf("duplicate exclusion path %q", path)
+		}
+		seen[path] = struct{}{}
+		parts := strings.Split(path, ".")
+		for _, part := range parts {
+			if part == "" {
+				return nil, fmt.Errorf("invalid exclusion path %q", path)
+			}
+		}
+		if err := validateSchemaRedactionPath(t, parts); err != nil {
+			return nil, fmt.Errorf("exclusion %q: %w", path, err)
+		}
+		normalized[i] = path
+	}
+	return normalized, nil
+}
+
+func validateSchemaRedactionPath(t reflect.Type, parts []string) error {
+	t = unwrapSchemaContainers(t)
+	if t.Kind() != reflect.Struct {
+		return fmt.Errorf("cannot traverse %s", t.Kind())
+	}
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		if field.PkgPath != "" {
+			continue
+		}
+		name, ignored := schemaJSONFieldNameWithIgnore(field)
+		if ignored || name != parts[0] {
+			continue
+		}
+		if len(parts) == 1 {
+			return nil
+		}
+		return validateSchemaRedactionPath(field.Type, parts[1:])
+	}
+	return fmt.Errorf("field %q does not exist on %s", parts[0], t)
+}
+
+func unwrapSchemaContainers(t reflect.Type) reflect.Type {
+	for {
+		switch t.Kind() {
+		case reflect.Pointer, reflect.Slice, reflect.Array:
+			t = t.Elem()
+		default:
+			return t
+		}
+	}
+}
+
+func schemaJSONFieldNameWithIgnore(field reflect.StructField) (string, bool) {
+	tag := field.Tag.Get("json")
+	if tag == "-" {
+		return "", true
+	}
+	name := field.Name
+	if tag != "" {
+		tagName := strings.Split(tag, ",")[0]
+		if tagName != "" {
+			name = tagName
+		}
+	}
+	return name, false
+}
+
+// redactSchemaJSON applies JSON field exclusions to a serialized data copy.
+// It never mutates the caller's value and can be used by any schema adapter.
+func redactSchemaJSON(raw []byte, policy schemaRedactionPolicy) ([]byte, error) {
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return nil, fmt.Errorf("decode schema data for redaction: %w", err)
+	}
+	for _, path := range policy.exclude {
+		redactSchemaPath(value, strings.Split(path, "."))
+	}
+	redacted, err := json.Marshal(value)
+	if err != nil {
+		return nil, fmt.Errorf("marshal redacted schema data: %w", err)
+	}
+	return redacted, nil
+}
+
+func redactSchemaPath(value any, parts []string) {
 	if len(parts) == 0 {
 		return
 	}
 	switch v := value.(type) {
 	case []any:
 		for _, item := range v {
-			redactPath(item, parts)
+			redactSchemaPath(item, parts)
 		}
 	case map[string]any:
 		key := parts[0]
@@ -59,81 +139,9 @@ func redactPath(value any, parts []string) {
 			return
 		}
 		if child, ok := v[key]; ok {
-			redactPath(child, parts[1:])
+			redactSchemaPath(child, parts[1:])
 		}
 	}
-}
-
-// encodeEventSchema owns schema-aware event serialization and returns the
-// schema fingerprint and type identity that storage persists as metadata.
-func encodeEventSchema[T any](event *Event[T]) ([]byte, string, string, error) {
-	if !event.dataSet {
-		return nil, "", "", ErrUnsetEventData
-	}
-	raw, err := json.Marshal(event.data)
-	if err != nil {
-		return nil, "", "", fmt.Errorf("marshal event data: %w", err)
-	}
-
-	var payload any
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		return nil, "", "", fmt.Errorf("decode event data for redaction: %w", err)
-	}
-	for _, path := range event.redactionPolicy.exclude {
-		redactPath(payload, strings.Split(path, "."))
-	}
-
-	redacted, err := json.Marshal(payload)
-	if err != nil {
-		return nil, "", "", fmt.Errorf("marshal redacted event data: %w", err)
-	}
-
-	typeName := eventTypeName[T]()
-	encoded, err := json.Marshal(eventEnvelope{Type: typeName, Data: redacted, Time: event.time})
-	if err != nil {
-		return nil, "", "", fmt.Errorf("marshal event envelope: %w", err)
-	}
-	fingerprint := schemaFingerprint(reflect.TypeOf((*T)(nil)).Elem(), schemaEvent)
-	return encoded, fingerprint, typeName, nil
-}
-
-// decodeEventSchema verifies persisted schema metadata before reconstructing a
-// typed event with the current stream's redaction policy.
-func decodeEventSchema[T any](raw []byte, fingerprint, persistedTypeName string, policy RedactionPolicy) (Event[T], error) {
-	expectedFingerprint := schemaFingerprint(reflect.TypeOf((*T)(nil)).Elem(), schemaEvent)
-	if fingerprint != expectedFingerprint {
-		return Event[T]{}, fmt.Errorf("deserialize event: schema fingerprint mismatch")
-	}
-
-	event, err := NewEvent[T](policy)
-	if err != nil {
-		return Event[T]{}, fmt.Errorf("invalid event redaction policy: %w", err)
-	}
-
-	var envelope eventEnvelope
-	if err := json.Unmarshal(raw, &envelope); err != nil {
-		return Event[T]{}, fmt.Errorf("deserialize event envelope: %w", err)
-	}
-	expectedType := eventTypeName[T]()
-	if persistedTypeName != expectedType {
-		return Event[T]{}, fmt.Errorf("deserialize event: persisted type mismatch, got %q want %q", persistedTypeName, expectedType)
-	}
-	if envelope.Type != expectedType {
-		return Event[T]{}, fmt.Errorf("deserialize event: type mismatch, got %q want %q", envelope.Type, expectedType)
-	}
-	if len(envelope.Data) == 0 {
-		return Event[T]{}, fmt.Errorf("deserialize event: missing data")
-	}
-
-	var data T
-	if err := json.Unmarshal(envelope.Data, &data); err != nil {
-		return Event[T]{}, fmt.Errorf("deserialize event data: %w", err)
-	}
-	if err := event.SetData(data); err != nil {
-		return Event[T]{}, fmt.Errorf("validate event data: %w", err)
-	}
-	event.time = envelope.Time
-	return event, nil
 }
 
 type schemaLayer string
