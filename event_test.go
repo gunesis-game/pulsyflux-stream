@@ -31,7 +31,11 @@ func TestRedactionPolicyRejectsEmptyAndDuplicatePaths(t *testing.T) {
 	type payload struct {
 		Value string `json:"value"`
 	}
-	for _, redactionPolicy := range []RedactionPolicy{NewRedactionPolicy(""), NewRedactionPolicy("value", "value"), NewRedactionPolicy("value..nested")} {
+	for _, redactionPolicy := range []RedactionPolicy{
+		NewRedactionPolicy(""),
+		NewRedactionPolicy("value", "value"),
+		NewRedactionPolicy("value..nested"),
+	} {
 		if _, err := NewEvent[payload](redactionPolicy); err == nil {
 			t.Fatalf("expected redactionPolicy validation failure for %#v", redactionPolicy)
 		}
@@ -81,8 +85,8 @@ func TestEventSerializationRedactsNestedSliceAndDoesNotMutateData(t *testing.T) 
 
 func TestEventDeserializeRoundTripRedactedData(t *testing.T) {
 	type payload struct {
-		ID       string `json:"id"`
-		Secret   string `json:"secret"`
+		ID     string `json:"id"`
+		Secret string `json:"secret"`
 	}
 	redactionPolicy := NewRedactionPolicy("secret")
 	event, err := NewEvent[payload](redactionPolicy)
