@@ -79,6 +79,7 @@ jobs:
             exit 1
           fi
       - name: Run race tests and collect coverage
+        shell: bash
         run: go test -race -coverprofile=coverage.out ./...
       - name: Print per-file coverage
         shell: bash
@@ -99,6 +100,8 @@ jobs:
           if-no-files-found: error
           retention-days: 7
       - name: Run vet
+        shell: bash
         run: go vet ./...
       - name: Build package
+        shell: bash
         run: go build ./...
