@@ -102,7 +102,7 @@ flowchart LR
 - `recordVersion` is currently `2`. Version 1 records are intentionally rejected; this schema change is not an in-place reinterpretation or migration.
 - `maxRecordBytes` is 64 MiB and applies to the final encoded JSON body, after `json.RawMessage` whitespace compaction and HTML escaping.
 - The encoder preflights the exact JSON body size before marshaling the caller-provided payload. It validates the raw JSON and counts compaction/escaping without allocating an intermediate encoded payload; oversized bodies are rejected before the full JSON body or frame is allocated.
-- The preflight preserves Go `encoding/json` version-1 encoding semantics, including field order, string escaping, `RawMessage` compaction, and HTML escaping. The stored frame format and checksum are unchanged.
+- The preflight preserves Go `encoding/json` encoding semantics, including field order, string escaping, `RawMessage` compaction, and HTML escaping. The stored frame format and checksum are unchanged.
 - The decoder requires the frame length to match the declared body length exactly.
 - A complete frame with bad magic, invalid length, checksum mismatch, invalid JSON, unsupported version, or missing required fields is rejected.
 - Required record fields are version, event ID, stream ID, channel ID, sequence, timestamp, the six schema fingerprints (event/stream/channel base and effective), and payload.
@@ -227,7 +227,7 @@ flowchart TD
 
 - Sequence numbers are authoritative ordering. Timestamps are metadata, not an ordering source.
 - The writer generates a new event UUID for each append.
-- The writer copies the payload bytes into the record before encoding.
+- The writer copies the payload bytes into the record before encoding. The caller supplies six non-empty fingerprints: base/effective identities for Event, Stream, and Channel.
 - Rotation happens only when the current segment is non-empty and the next frame would exceed `maxBytes`.
 - Therefore, a single frame larger than the configured segment threshold can occupy an otherwise-empty segment. The record-body limit still applies.
 - The configured default segment threshold is 64 MiB when `MaxSegmentBytes` is not positive.
