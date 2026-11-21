@@ -122,7 +122,7 @@ func TestEventDeserializeRoundTripRedactedData(t *testing.T) {
 func TestSetDataRejectsNonJSONPayloadAndKeepsPreviousData(t *testing.T) {
 	type payload struct {
 		Value string
-		Func  func()
+		Func  any
 	}
 	event, err := NewEvent[payload](NewPolicy())
 	if err != nil {
