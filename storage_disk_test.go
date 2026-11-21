@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -283,6 +284,12 @@ func TestDiskWriterSyncEachAppendFlushesAcrossRotation(t *testing.T) {
 		MaxSegmentBytes: 220,
 		SyncEachAppend:  true,
 	})
+	if runtime.GOOS == "windows" {
+		if !errors.Is(err, errDirectorySyncUnsupported) {
+			t.Fatalf("SyncEachAppend open error = %v, want explicit unsupported error", err)
+		}
+		return
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
