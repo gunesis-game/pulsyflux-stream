@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 )
 
 func newTestEvent[T any](t *testing.T, data T) Event[T] {
@@ -344,18 +343,4 @@ func TestConcurrentPublishAndSubscribe(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
-}
-
-func TestEventChannelIdentityIsPrivateAndUnique(t *testing.T) {
-	first := NewEventChannel[testStreamContext]()
-	second := NewEventChannel[testStreamContext]()
-	defer first.Close()
-	defer second.Close()
-
-	if first.id == uuid.Nil || second.id == uuid.Nil {
-		t.Fatal("constructor created a nil internal identity")
-	}
-	if first.id == second.id {
-		t.Fatal("distinct channels shared an internal identity")
-	}
 }

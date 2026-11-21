@@ -5,7 +5,6 @@ import (
 	"reflect"
 	"sync"
 
-	"github.com/google/uuid"
 )
 
 // EventChannel is a logical grouping identity for a family of related streams.
@@ -15,17 +14,15 @@ type streamSchemaIdentityProvider interface {
 }
 
 type EventChannel[TStream any] struct {
-	id uuid.UUID
 
 	mu      sync.RWMutex
 	streams map[reflect.Type]any
 	closed  bool
 }
 
-// NewEventChannel creates a new logical event channel with a private random UUID.
+// NewEventChannel creates a logical event channel identified by its TStream type.
 func NewEventChannel[TStream any]() *EventChannel[TStream] {
 	return &EventChannel[TStream]{
-		id:      uuid.New(),
 		streams: make(map[reflect.Type]any),
 	}
 }
@@ -58,9 +55,6 @@ func (channel *EventChannel[TStream]) Close() {
 func register[TStream, TEvent any](channel *EventChannel[TStream], bufferSize int) (*Stream[TStream, TEvent], error) {
 	if channel == nil {
 		return nil, ErrNilEventChannel
-	}
-	if channel.id == uuid.Nil {
-		return nil, ErrNilEventChannelID
 	}
 
 	eventType := reflect.TypeOf((*TEvent)(nil)).Elem()
