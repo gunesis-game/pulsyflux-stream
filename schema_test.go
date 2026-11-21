@@ -1,6 +1,9 @@
 package stream
 
-import "reflect"
+import (
+	"reflect"
+	"testing"
+)
 
 func TestCanonicalTypeDescriptorDeterministic(t *testing.T) {
 	type payload struct {
