@@ -6,7 +6,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
 )
 
 func newTestEvent[T any](t *testing.T, data T) Event[T] {

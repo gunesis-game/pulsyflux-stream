@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"reflect"
 	"sync"
-
 )
 
 // EventChannel is a logical grouping identity for a family of related streams.
@@ -14,7 +13,6 @@ type streamSchemaIdentityProvider interface {
 }
 
 type EventChannel[TStream any] struct {
-
 	mu      sync.RWMutex
 	streams map[reflect.Type]any
 	closed  bool
