@@ -146,17 +146,17 @@ type diskWriterOptions struct {
 // diskWriter is private append-only segment I/O. Payload must already be
 // serialized and redacted by Event's private serialization boundary.
 type diskWriter struct {
-	mu             sync.Mutex
-	dir            string
-	maxBytes       int64
-	file           *os.File
-	buf            *bufio.Writer
-	segment        uint64
-	size           int64
-	nextSequence   uint64
-	closed         bool
-	failed         error
-	closeErr       error
+	mu           sync.Mutex
+	dir          string
+	maxBytes     int64
+	file         *os.File
+	buf          *bufio.Writer
+	segment      uint64
+	size         int64
+	nextSequence uint64
+	closed       bool
+	failed       error
+	closeErr     error
 }
 
 func openDiskWriter(dir string, opts diskWriterOptions) (*diskWriter, error) {
