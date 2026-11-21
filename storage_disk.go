@@ -190,8 +190,9 @@ func diskSegments(dir string) ([]string, error) {
 	sort.Slice(segments, func(i, j int) bool { return segments[i].num < segments[j].num })
 	paths := make([]string, len(segments))
 	for i, segment := range segments {
-		if i > 0 && segments[i-1].num == segment.num {
-			return nil, fmt.Errorf("stream: duplicate segment number %d", segment.num)
+		expected := uint64(i + 1)
+		if segment.num != expected {
+			return nil, fmt.Errorf("stream: missing segment %06d before %q", expected, filepath.Base(segment.path))
 		}
 		paths[i] = segment.path
 	}
