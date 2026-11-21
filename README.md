@@ -92,6 +92,26 @@ func main() {
 - A channel UUID is a logical identity, not a storage location. The current registry is in-memory; a future persistent or distributed backend can use the same UUID without changing the channel identity model.
 - `EventChannel.Close()` closes every stream registered under that UUID and prevents further registrations through that channel instance. It is safe to call more than once. A new channel instance can be reconstructed with the same UUID after closure.
 
+## Typed events and redaction policies
+
+Events are created with an explicit policy. Policy paths use JSON field names (including JSON tags) and are validated against the payload type when the event is constructed. Use an empty policy when no redaction is required.
+
+```go
+event, err := stream.NewEvent[PlayerJoined](stream.NewPolicy())
+if err != nil {
+    log.Fatal(err)
+}
+event.Name = "player.joined"
+if err := event.SetData(PlayerJoined{PlayerID: "player-42"}); err != nil {
+    log.Fatal(err)
+}
+if err := joined.Publish(event); err != nil {
+    log.Fatal(err)
+}
+```
+
+Redaction is applied to the serialized copy of the payload; subscribers still receive the original typed data. Serialization and deserialization are package-private because they are persistence details. The in-memory stream registry currently does not provide durable storage.
+
 ## Semantics
 
 - Each subscriber receives each published event value.
