@@ -231,6 +231,12 @@ func openDiskWriter(dir string, opts diskWriterOptions) (*diskWriter, error) {
 			w.file, w.buf, w.size = f, bufio.NewWriter(f), valid
 		}
 	}
+	if w.syncEachAppend {
+		if err := syncSegmentDirectory(w.dir); err != nil {
+			_ = w.Close()
+			return nil, err
+		}
+	}
 	return w, nil
 }
 
