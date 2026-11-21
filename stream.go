@@ -18,7 +18,7 @@ var (
 	// ErrNilEventChannel is returned when New is called without an EventChannel.
 	ErrNilEventChannel = errors.New("stream: nil event channel")
 	// ErrNilEventChannelID is returned when an EventChannel has the zero UUID.
-	ErrNilEventChannelID = errors.New("stream: nil event channel UUID")
+	ErrNilEventChannelID = errors.New("stream: invalid internal event channel identity")
 	// ErrInvalidBufferSize is returned when New receives a buffer size less than one.
 	ErrInvalidBufferSize = errors.New("stream: buffer size must be greater than zero")
 	// ErrDuplicateStream is returned when an EventChannel already owns a stream
