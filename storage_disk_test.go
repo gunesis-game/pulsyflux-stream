@@ -66,3 +66,30 @@ func TestDiskWriterSequenceTailRecoveryAndRollover(t *testing.T) {
 	if err := w.Close(); err != nil { t.Fatal(err) }
 	_ = filepath.Base(last)
 }
+
+func TestDiskWriterRecoversSequenceAcrossEmptySegment(t *testing.T) {
+	dir := t.TempDir()
+	frame, err := encodeDiskRecord(testDiskRecord(7))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "segment-000001.pfs"), frame, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "segment-000002.pfs"), nil, 0o640); err != nil {
+		t.Fatal(err)
+	}
+
+	w, err := openDiskWriter(dir, diskWriterOptions{MaxSegmentBytes: 4096})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	seq, _, err := w.Append(uuid.New(), uuid.New(), "schema", "event", time.Now(), []byte(`{"v":1}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if seq != 8 {
+		t.Fatalf("recovered sequence=%d want=8", seq)
+	}
+}
