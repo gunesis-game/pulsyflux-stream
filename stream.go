@@ -23,7 +23,7 @@ var (
 	ErrInvalidBufferSize = errors.New("stream: buffer size must be greater than zero")
 	// ErrDuplicateStream is returned when an EventChannel already owns a stream
 	// for the requested event type.
-	ErrDuplicateStream = errors.New("stream: event type already registered in channel")
+	ErrDuplicateStream = errors.New("stream: event type already registered in channel")\n\t// ErrUnsetEventData is returned when publishing an event without SetData.\n\tErrUnsetEventData = errors.New("stream: event data was not set")
 )
 
 // Event is a value published to a Stream.
