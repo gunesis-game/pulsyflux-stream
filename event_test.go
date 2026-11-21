@@ -81,7 +81,7 @@ func TestEventSerializationRedactsNestedSliceAndDoesNotMutateData(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	raw, err := encodeEventSchema(&event)
+	raw, _, _, err := encodeEventSchema(&event)
 	if err != nil {
 		t.Fatal(err)
 	}
