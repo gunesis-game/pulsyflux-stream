@@ -361,3 +361,43 @@ Ask the user to choose one before implementing. Do not infer this policy from th
 - Treat the user decision “Linux and Windows” as settled.
 - The remaining blocker is the cross-platform durability contract, not the OS support list.
 - Do not change code until the user chooses the asymmetric or strict guarantee above.
+
+
+## Session handoff — strict cross-platform durability implemented and CI verified (2026-11-21)
+
+This section supersedes the earlier pending-choice handoff above. The user selected **option 2: strict cross-platform durability**.
+
+### Repository and verification checkpoint
+- Repository: `gunesis-game/pulsyflux-stream`; branch: `main`.
+- Exact verified HEAD: `e0a2e6f501e32c5c583e99a320dc0c8e804ac0b5`.
+- CI run: [44898090996](https://github.com/gunesis-game/pulsyflux-stream/actions/runs/44898090996).
+- CI run completed successfully with `head_sha=e0a2e6f501e32c5c583e99a320dc0c8e804ac0b5`.
+- Linux job `Test and build (ubuntu-latest)`: formatting passed; `go test -race -cover ./...` passed (81.4% coverage); `go vet ./...` passed; `go build ./...` passed.
+- Windows job `Test and build (windows-latest)`: formatting passed; `go test -cover ./...` passed (80.9% coverage); `go vet ./...` passed; `go build ./...` passed.
+- The race detector is run on Linux only. Windows tests still run normally without `-race`.
+- Earlier matrix runs 44897984316 and 44898009550 failed only at Windows formatting verification: checkout line endings caused gofmt to flag all Go files. The root cause was fixed with `.gitattributes` (`*.go text eol=lf`); run 44898090996 verifies the fix on both platforms.
+
+### User-selected contract and implementation
+- Supported disk-backend operating systems: Linux and Windows.
+- Contract: `SyncEachAppend` must not acknowledge an append unless both file contents and the segment directory entry are covered by the durability sequence.
+- Linux implementation is in `storage_disk_sync_linux.go`: it opens the segment directory and calls `os.File.Sync()`. It syncs the directory after creating a segment and when reopening an existing writer with `SyncEachAppend` enabled. Append then flushes and syncs the segment file. A directory-sync failure fails writer initialization or the append/rotation path; append-time failures are sticky.
+- Windows implementation is in `storage_disk_sync_windows.go`: the platform capability check returns `errDirectorySyncUnsupported`. `openDiskWriter(..., SyncEachAppend: true)` rejects the mode before opening or creating segment files. There is no silent file-only fallback and no unverified directory-flush hack.
+- Other OSes use `storage_disk_sync_other.go` and reject strict `SyncEachAppend` until a verified platform implementation is added.
+- The explicit error is `errDirectorySyncUnsupported` in `storage_disk.go`.
+- `storage_disk_test.go` checks Windows gets the explicit unsupported error and Linux retains the sync-across-rotation test.
+- `docs/storage_disk.md` now documents the strict contract, Linux and Windows behavior, error semantics, platform helper files, and the provisioning boundary.
+- The storage directory itself must be durably provisioned by the caller. Linux syncs segment entries within that directory; it does not recursively sync newly created ancestor directories. This limitation is explicit in the architecture guide and should remain visible unless the implementation is expanded to durably create the directory hierarchy.
+
+### Post-CI analysis and remaining gaps
+- Both supported OS matrix jobs pass the formatting, test, vet, and build checks. The Windows-specific rejection behavior is now exercised in CI.
+- The first CI attempt exposed line-ending normalization rather than a Go code failure; `.gitattributes` resolved it without weakening the non-mutating formatting gate.
+- No local test or local gofmt claim is made; verification is from the exact GitHub Actions run above.
+- Linux directory fsync can still fail on filesystems that do not support the operation or on storage stacks that do not honor flush guarantees. Those errors fail closed; the implementation cannot override hardware/filesystem guarantees.
+- Windows does not currently support `SyncEachAppend` under this strict contract. This is intentional until a supported, reliable, tested directory-entry durability mechanism is established.
+- The storage directory/ancestor provisioning boundary is the main durability scope limitation left to decide if broader guarantees are required.
+
+### Next actionable work
+1. Consider whether the storage backend should itself durably create and sync a missing storage-directory hierarchy, rather than requiring caller provisioning. Do not broaden this silently; define the exact hierarchy-creation contract and add platform tests first.
+2. Keep Windows `SyncEachAppend` fail-closed unless a documented and tested Windows directory-entry durability mechanism becomes available.
+3. Any further storage behavior change must update `docs/storage_disk.md` in the same code iteration, run the Linux+Windows matrix, inspect exact job steps/logs, and then add a fresh Markdown-only handoff update.
+4. Before further work, independently verify current `main` HEAD and latest CI; do not assume this handoff remains the newest state.
