@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 )
 
-func newTestStream[T any](t *testing.T, bufferSize int) *Stream[T] {
+func newTestEvent[T any](t *testing.T, name string, data T) Event[T] {\n\tt.Helper()\n\tevent, err := NewEvent[T](NewPolicy())\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tevent.Name = name\n\tif err := event.SetData(data); err != nil {\n\t\tt.Fatal(err)\n\t}\n\treturn event\n}\n\nfunc newTestStream[T any](t *testing.T, bufferSize int) *Stream[T] {
 	t.Helper()
 	channel := NewEventChannel()
 	s, err := New[T](channel, bufferSize)
@@ -82,7 +82,7 @@ func TestEventChannelsAreIsolated(t *testing.T) {
 	}
 	defer secondSub.Close()
 
-	if err := first.Publish(Event[isolatedEvent]{Data: isolatedEvent{Value: "first"}}); err != nil {
+	if err := first.Publish(newTestEvent(t, "", isolatedEvent{Value: "first"})); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -90,7 +90,7 @@ func TestEventChannelsAreIsolated(t *testing.T) {
 		t.Fatalf("event leaked into second channel: %#v", got)
 	default:
 	}
-	if got := <-firstSub.Events(); got.Data.Value != "first" {
+	if got := <-firstSub.Events(); got.Data().Value != "first" {
 		t.Fatalf("unexpected event: %#v", got)
 	}
 }
@@ -184,7 +184,7 @@ func TestPublishToMultipleSubscribers(t *testing.T) {
 	}
 	defer b.Close()
 
-	want := Event[string]{Name: "created", Data: "item-1"}
+	want := newTestEvent(t, "created", "item-1")
 	if err := s.Publish(want); err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +192,7 @@ func TestPublishToMultipleSubscribers(t *testing.T) {
 	for _, sub := range []*Subscription[string]{a, b} {
 		select {
 		case got := <-sub.Events():
-			if got.Name != want.Name || got.Data != want.Data {
+			if got.Name != want.Name || got.Data() != want.Data() {
 				t.Fatalf("got %#v, want %#v", got, want)
 			}
 			if got.Time.IsZero() {
@@ -211,11 +211,11 @@ func TestPublishIsAtomicWhenSubscriberIsFull(t *testing.T) {
 	slow, _ := s.Subscribe(context.Background())
 	defer slow.Close()
 
-	if err := s.Publish(Event[int]{Data: 1}); err != nil {
+	if err := s.Publish(newTestEvent(t, "", 1)); err != nil {
 		t.Fatal(err)
 	}
 	<-fast.Events()
-	if err := s.Publish(Event[int]{Data: 2}); !errors.Is(err, ErrSlowSubscriber) {
+	if err := s.Publish(newTestEvent(t, "", 2)); !errors.Is(err, ErrSlowSubscriber) {
 		t.Fatalf("got %v, want ErrSlowSubscriber", err)
 	}
 	select {
@@ -245,7 +245,7 @@ func TestContextCancellationUnsubscribes(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("subscription was not closed after context cancellation")
 	}
-	if err := s.Publish(Event[int]{Data: 1}); err != nil {
+	if err := s.Publish(newTestEvent(t, "", 1)); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -292,7 +292,7 @@ func TestConcurrentPublishAndSubscribe(t *testing.T) {
 		go func(base int) {
 			defer wg.Done()
 			for n := 0; n < 100; n++ {
-				err := s.Publish(Event[int]{Data: base*100 + n})
+				err := s.Publish(newTestEvent(t, "", base*100 + n))
 				if err != nil && !errors.Is(err, ErrSlowSubscriber) {
 					t.Errorf("Publish: %v", err)
 					return
