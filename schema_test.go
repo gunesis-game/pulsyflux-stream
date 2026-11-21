@@ -1,7 +1,9 @@
 package stream
 
 import (
+	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -81,5 +83,47 @@ func TestSchemaFingerprintHandlesRecursiveTypes(t *testing.T) {
 	second := schemaFingerprint(reflect.TypeOf(node{}), schemaData)
 	if first != second {
 		t.Fatal("recursive type fingerprint is not deterministic")
+	}
+}
+
+func TestSchemaRedactionAppliesPathsToJSONCopy(t *testing.T) {
+	type user struct {
+		Name     string `json:"name"`
+		Password string `json:"password"`
+	}
+	type payload struct {
+		Users []user `json:"users"`
+	}
+	original := payload{Users: []user{{Name: "Ada", Password: "secret"}}}
+	raw, err := json.Marshal(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	redacted, err := redactSchemaJSON(raw, []string{"users.password"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(redacted), "secret") || strings.Contains(string(redacted), "password") {
+		t.Fatalf("redacted JSON retained excluded field: %s", redacted)
+	}
+	if got := original.Users[0].Password; got != "secret" {
+		t.Fatalf("schema redaction mutated source value: %q", got)
+	}
+	if !strings.Contains(string(raw), "secret") {
+		t.Fatalf("schema redaction mutated original JSON bytes: %s", raw)
+	}
+}
+
+func TestNormalizeSchemaRedactionPaths(t *testing.T) {
+	type payload struct {
+		AccessToken string `json:"access_token"`
+	}
+	paths, err := normalizeSchemaRedactionPaths(reflect.TypeOf(payload{}), []string{" access_token "})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(paths) != 1 || paths[0] != "access_token" {
+		t.Fatalf("normalized paths = %#v", paths)
 	}
 }
