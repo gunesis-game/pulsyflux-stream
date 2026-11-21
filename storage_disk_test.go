@@ -247,3 +247,64 @@ func TestDiskSegmentsRejectNumberingGaps(t *testing.T) {
 		})
 	}
 }
+
+func TestDiskWriterReopenAcrossSegmentsReaderContinuity(t *testing.T) {
+	dir := t.TempDir()
+	opts := diskWriterOptions{MaxSegmentBytes: 220}
+	channelID, streamID := uuid.New(), uuid.New()
+
+	writer, err := openDiskWriter(dir, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 1; i <= 4; i++ {
+		sequence, _, err := writer.Append(channelID, streamID, "schema", "event", time.Now(),
+			[]byte(`{"payload":"large enough to force segment rotation"}`))
+		if err != nil {
+			t.Fatalf("initial append %d: %v", i, err)
+		}
+		if sequence != uint64(i) {
+			t.Fatalf("initial sequence=%d want=%d", sequence, i)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	writer, err = openDiskWriter(dir, opts)
+	if err != nil {
+		t.Fatalf("reopen writer: %v", err)
+	}
+	for i := 5; i <= 6; i++ {
+		sequence, _, err := writer.Append(channelID, streamID, "schema", "event", time.Now(),
+			[]byte(`{"payload":"after reopen"}`))
+		if err != nil {
+			t.Fatalf("append after reopen %d: %v", i, err)
+		}
+		if sequence != uint64(i) {
+			t.Fatalf("reopened sequence=%d want=%d", sequence, i)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reader, err := openDiskReader(dir)
+	if err != nil {
+		t.Fatalf("open reader: %v", err)
+	}
+	defer reader.Close()
+
+	for expected := uint64(1); expected <= 6; expected++ {
+		record, err := reader.Next()
+		if err != nil {
+			t.Fatalf("read sequence %d: %v", expected, err)
+		}
+		if record.Sequence != expected {
+			t.Fatalf("read sequence=%d want=%d", record.Sequence, expected)
+		}
+	}
+	if _, err := reader.Next(); !errors.Is(err, io.EOF) {
+		t.Fatalf("expected EOF after reopened stream, got %v", err)
+	}
+}
