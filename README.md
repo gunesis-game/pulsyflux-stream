@@ -64,11 +64,11 @@ func main() {
 
 ## Event channels and streams
 
-- `NewEventChannel[TStream]()` creates a logical grouping with a private random identity.
+- `NewEventChannel[TStream]()` creates a logical grouping based on the `TStream` type.
 - `New[TStream, TEvent](channel, bufferSize)` registers a typed stream in that grouping. It errors for nil/invalid/closed channels, non-positive buffer sizes, or duplicate registration of T within the same channel.
 - `Get[TStream, TEvent](channel)` returns the registered stream or nil if unavailable.
 - A channel is `EventChannel[TStream]` and can own multiple differently typed streams: `Stream[TStream, TEvent1]`, `Stream[TStream, TEvent2]`, and so on. All streams in one channel share `TStream`; each stream has its own `TEvent`.
-- Channel UUIDs are private implementation identities. Consumers cannot inspect, supply, or reconstruct them.
+- Channel grouping is determined by the `TStream` type; channel instances remain independent and process-local.
 - Channel identity is not storage: stream registration is owned by the channel instance and is process-local.
 - `EventChannel.Close()` closes its registered streams and prevents new registrations through that instance. It is idempotent.
 
@@ -87,7 +87,7 @@ if err := event.SetData(user); err != nil {
 }
 ```
 
-Redaction is implemented by the generic schema layer and applied by the event schema adapter during private serialization on a JSON copy; the live event and stream subscribers retain the original payload. The redacted payload is what serialization persists. Consequently, deserializing a redacted record restores the redacted data, not the original secrets. Serialization/deserialization are package-private and currently have no public persistence API.
+Redaction is owned by Event and applied to a serialized JSON copy when preparing persisted payloads; the live event and stream subscribers retain the original payload. The redacted payload is what storage persists. Consequently, deserializing a redacted record restores the redacted data, not the original secrets. Serialization/deserialization are package-private and currently have no public persistence API.
 
 Supported policy path traversal is limited to structs, pointers, and slices/arrays of structs. Map traversal and embedded-field flattening are not supported. Paths are exact JSON field names and are case-sensitive. A path must be resolvable; empty, duplicate, and malformed paths are rejected.
 
