@@ -18,7 +18,7 @@ func TestNewEventNormalizesRedactionPathWhitespace(t *testing.T) {
 	if err := event.SetData(payload{Value: "secret"}); err != nil {
 		t.Fatal(err)
 	}
-	raw, err := event.serialize()
+	raw, _, _, err := encodeEventSchema(&event)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func TestEventSerializationRedactsNestedSliceAndDoesNotMutateData(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	raw, err := event.serialize()
+	raw, err := encodeEventSchema(&event)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,12 +118,12 @@ func TestEventDeserializeRoundTripRedactedData(t *testing.T) {
 	if err := event.SetData(payload{ID: "u1", Secret: "hidden"}); err != nil {
 		t.Fatal(err)
 	}
-	raw, err := event.serialize()
+	raw, err := encodeEventSchema(&event)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	restored, err := deserialize[payload](raw, redactionPolicy)
+	restored, err := decodeEventSchema[payload](raw, fingerprint, redactionPolicy)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestEventDeserializeRoundTripRedactedData(t *testing.T) {
 		t.Fatalf("metadata did not round-trip: restored=%#v original=%#v", restored, event)
 	}
 
-	rawAgain, err := restored.serialize()
+	rawAgain, _, _, err := encodeEventSchema(&restored)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,5 +161,17 @@ func TestSetDataRejectsNonJSONPayloadAndKeepsPreviousData(t *testing.T) {
 	}
 	if got := event.Data().Value; got != "valid" {
 		t.Fatalf("failed SetData changed existing payload: %q", got)
+	}
+}
+
+func TestEventDeserializeRejectsSchemaFingerprintMismatch(t *testing.T) {
+	type payload struct { Value string }
+	event, err := NewEvent[payload](NewRedactionPolicy())
+	if err != nil { t.Fatal(err) }
+	if err := event.SetData(payload{Value: "ok"}); err != nil { t.Fatal(err) }
+	raw, fingerprint, _, err := encodeEventSchema(&event)
+	if err != nil { t.Fatal(err) }
+	if _, err := decodeEventSchema[payload](raw, fingerprint+"x", NewRedactionPolicy()); err == nil {
+		t.Fatal("expected schema fingerprint mismatch")
 	}
 }
