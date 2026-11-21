@@ -100,7 +100,6 @@ event, err := stream.NewEvent[PlayerJoined](stream.NewPolicy())
 if err != nil {
     log.Fatal(err)
 }
-event.Name = "player.joined"
 if err := event.SetData(PlayerJoined{PlayerID: "player-42"}); err != nil {
     log.Fatal(err)
 }
