@@ -18,18 +18,6 @@ func validateSchemaData[T any](data T) error {
 	return err
 }
 
-type schemaRedactionPolicy struct {
-	exclude []string
-}
-
-func newSchemaRedactionPolicy(t reflect.Type, paths []string) (schemaRedactionPolicy, error) {
-	normalized, err := normalizeSchemaRedactionPaths(t, paths)
-	if err != nil {
-		return schemaRedactionPolicy{}, err
-	}
-	return schemaRedactionPolicy{exclude: normalized}, nil
-}
-
 // normalizeSchemaRedactionPaths validates and copies JSON field paths for a
 // particular data shape. It is independent of Event, Stream, and Channel.
 func normalizeSchemaRedactionPaths(t reflect.Type, paths []string) ([]string, error) {
@@ -108,12 +96,12 @@ func schemaJSONFieldNameWithIgnore(field reflect.StructField) (string, bool) {
 
 // redactSchemaJSON applies JSON field exclusions to a serialized data copy.
 // It never mutates the caller's value and can be used by any schema adapter.
-func redactSchemaJSON(raw []byte, policy schemaRedactionPolicy) ([]byte, error) {
+func redactSchemaJSON(raw []byte, paths []string) ([]byte, error) {
 	var value any
 	if err := json.Unmarshal(raw, &value); err != nil {
 		return nil, fmt.Errorf("decode schema data for redaction: %w", err)
 	}
-	for _, path := range policy.exclude {
+	for _, path := range paths {
 		redactSchemaPath(value, strings.Split(path, "."))
 	}
 	redacted, err := json.Marshal(value)
