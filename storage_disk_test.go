@@ -185,6 +185,50 @@ func TestDiskReaderRejectsIncompleteTailAndCompleteCorruption(t *testing.T) {
 	}
 }
 
+func TestDiskReaderStopsAtCorruptionInMiddleSegment(t *testing.T) {
+	dir := t.TempDir()
+	first := mustEncodeDiskRecord(t, 1)
+	second := mustEncodeDiskRecord(t, 2)
+	corrupt := mustEncodeDiskRecord(t, 3)
+	corrupt[len(corrupt)-1] ^= 0xff
+	last := mustEncodeDiskRecord(t, 4)
+
+	if err := os.WriteFile(filepath.Join(dir, "segment-000001.pfs"), first, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	middle := append(append([]byte(nil), second...), corrupt...)
+	if err := os.WriteFile(filepath.Join(dir, "segment-000002.pfs"), middle, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "segment-000003.pfs"), last, 0o640); err != nil {
+		t.Fatal(err)
+	}
+
+	reader, err := openDiskReader(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+
+	for expected := uint64(1); expected <= 2; expected++ {
+		record, err := reader.Next()
+		if err != nil {
+			t.Fatalf("read sequence %d: %v", expected, err)
+		}
+		if record.Sequence != expected {
+			t.Fatalf("sequence=%d want=%d", record.Sequence, expected)
+		}
+	}
+	_, firstErr := reader.Next()
+	if !errors.Is(firstErr, errRecordCorrupt) {
+		t.Fatalf("middle-segment corruption accepted: %v", firstErr)
+	}
+	_, secondErr := reader.Next()
+	if secondErr != firstErr {
+		t.Fatalf("terminal error changed: first=%v second=%v", firstErr, secondErr)
+	}
+}
+
 func TestDiskSegmentsRejectInvalidNames(t *testing.T) {
 	for _, name := range []string{"segment-000000.pfs", "segment-1.pfs", "backup.pfs"} {
 		t.Run(name, func(t *testing.T) {
