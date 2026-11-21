@@ -21,35 +21,44 @@ import (
 )
 
 const (
-	recordVersion uint16 = 1
-	recordHeaderBytes = 8
-	recordChecksumBytes = 4
-	maxRecordBytes = 64 << 20
+	recordVersion       uint16 = 1
+	recordHeaderBytes          = 8
+	recordChecksumBytes        = 4
+	maxRecordBytes             = 64 << 20
 )
-var recordMagic = [4]byte{'P','F','S','R'}
+
+var recordMagic = [4]byte{'P', 'F', 'S', 'R'}
 var errRecordCorrupt = errors.New("stream: corrupt storage record")
 
 type diskRecord struct {
-	Version uint16
-	EventID uuid.UUID
-	StreamID uuid.UUID
-	ChannelID uuid.UUID
-	Sequence uint64
-	Timestamp int64
+	Version           uint16
+	EventID           uuid.UUID
+	StreamID          uuid.UUID
+	ChannelID         uuid.UUID
+	Sequence          uint64
+	Timestamp         int64
 	SchemaFingerprint string
-	Type string
-	Payload json.RawMessage
+	Type              string
+	Payload           json.RawMessage
 }
 
 func encodeDiskRecord(r diskRecord) ([]byte, error) {
-	if r.Version == 0 { r.Version = recordVersion }
-	if r.Version != recordVersion { return nil, fmt.Errorf("stream: unsupported record version %d", r.Version) }
+	if r.Version == 0 {
+		r.Version = recordVersion
+	}
+	if r.Version != recordVersion {
+		return nil, fmt.Errorf("stream: unsupported record version %d", r.Version)
+	}
 	if r.EventID == uuid.Nil || r.StreamID == uuid.Nil || r.ChannelID == uuid.Nil || r.Sequence == 0 || r.Timestamp == 0 || r.SchemaFingerprint == "" || r.Type == "" || len(r.Payload) == 0 {
 		return nil, fmt.Errorf("%w: missing record field", errRecordCorrupt)
 	}
 	body, err := json.Marshal(r)
-	if err != nil { return nil, err }
-	if len(body) > maxRecordBytes { return nil, fmt.Errorf("stream: record exceeds size limit") }
+	if err != nil {
+		return nil, err
+	}
+	if len(body) > maxRecordBytes {
+		return nil, fmt.Errorf("stream: record exceeds size limit")
+	}
 	frame := make([]byte, recordHeaderBytes+len(body)+recordChecksumBytes)
 	copy(frame[:4], recordMagic[:])
 	binary.BigEndian.PutUint32(frame[4:8], uint32(len(body)))
@@ -60,14 +69,26 @@ func encodeDiskRecord(r diskRecord) ([]byte, error) {
 
 func decodeDiskRecord(frame []byte) (diskRecord, error) {
 	var r diskRecord
-	if len(frame) < recordHeaderBytes+recordChecksumBytes || !bytes.Equal(frame[:4], recordMagic[:]) { return r, errRecordCorrupt }
+	if len(frame) < recordHeaderBytes+recordChecksumBytes || !bytes.Equal(frame[:4], recordMagic[:]) {
+		return r, errRecordCorrupt
+	}
 	n := int(binary.BigEndian.Uint32(frame[4:8]))
-	if n > maxRecordBytes || len(frame) != recordHeaderBytes+n+recordChecksumBytes { return r, errRecordCorrupt }
-	body := frame[8:8+n]
-	if crc32.ChecksumIEEE(body) != binary.BigEndian.Uint32(frame[len(frame)-4:]) { return r, fmt.Errorf("%w: checksum", errRecordCorrupt) }
-	if err := json.Unmarshal(body, &r); err != nil { return r, fmt.Errorf("%w: %v", errRecordCorrupt, err) }
-	if r.Version != recordVersion { return r, fmt.Errorf("stream: unsupported record version %d", r.Version) }
-	if r.EventID == uuid.Nil || r.StreamID == uuid.Nil || r.ChannelID == uuid.Nil || r.Sequence == 0 || r.Timestamp == 0 || r.SchemaFingerprint == "" || r.Type == "" || len(r.Payload) == 0 { return r, errRecordCorrupt }
+	if n > maxRecordBytes || len(frame) != recordHeaderBytes+n+recordChecksumBytes {
+		return r, errRecordCorrupt
+	}
+	body := frame[8 : 8+n]
+	if crc32.ChecksumIEEE(body) != binary.BigEndian.Uint32(frame[len(frame)-4:]) {
+		return r, fmt.Errorf("%w: checksum", errRecordCorrupt)
+	}
+	if err := json.Unmarshal(body, &r); err != nil {
+		return r, fmt.Errorf("%w: %v", errRecordCorrupt, err)
+	}
+	if r.Version != recordVersion {
+		return r, fmt.Errorf("stream: unsupported record version %d", r.Version)
+	}
+	if r.EventID == uuid.Nil || r.StreamID == uuid.Nil || r.ChannelID == uuid.Nil || r.Sequence == 0 || r.Timestamp == 0 || r.SchemaFingerprint == "" || r.Type == "" || len(r.Payload) == 0 {
+		return r, errRecordCorrupt
+	}
 	return r, nil
 }
 
@@ -79,20 +100,38 @@ func scanDiskRecords(rd io.Reader) (uint64, int64, bool, error) {
 	for {
 		h := make([]byte, recordHeaderBytes)
 		n, err := io.ReadFull(rd, h)
-		if err == io.EOF && n == 0 { return lastSequence, offset, false, nil }
-		if err == io.ErrUnexpectedEOF || (err == io.EOF && n > 0) { return lastSequence, offset, true, nil }
-		if err != nil { return lastSequence, offset, false, err }
-		if !bytes.Equal(h[:4], recordMagic[:]) { return lastSequence, offset, false, fmt.Errorf("%w at byte %d: magic", errRecordCorrupt, offset) }
+		if err == io.EOF && n == 0 {
+			return lastSequence, offset, false, nil
+		}
+		if err == io.ErrUnexpectedEOF || (err == io.EOF && n > 0) {
+			return lastSequence, offset, true, nil
+		}
+		if err != nil {
+			return lastSequence, offset, false, err
+		}
+		if !bytes.Equal(h[:4], recordMagic[:]) {
+			return lastSequence, offset, false, fmt.Errorf("%w at byte %d: magic", errRecordCorrupt, offset)
+		}
 		size := int(binary.BigEndian.Uint32(h[4:8]))
-		if size > maxRecordBytes { return lastSequence, offset, false, fmt.Errorf("%w at byte %d: oversized frame", errRecordCorrupt, offset) }
+		if size > maxRecordBytes {
+			return lastSequence, offset, false, fmt.Errorf("%w at byte %d: oversized frame", errRecordCorrupt, offset)
+		}
 		rest := make([]byte, size+recordChecksumBytes)
 		n, err = io.ReadFull(rd, rest)
-		if err == io.EOF || err == io.ErrUnexpectedEOF { return lastSequence, offset, true, nil }
-		if err != nil { return lastSequence, offset, false, err }
+		if err == io.EOF || err == io.ErrUnexpectedEOF {
+			return lastSequence, offset, true, nil
+		}
+		if err != nil {
+			return lastSequence, offset, false, err
+		}
 		frame := append(h, rest...)
 		record, err := decodeDiskRecord(frame)
-		if err != nil { return lastSequence, offset, false, fmt.Errorf("scan byte %d: %w", offset, err) }
-		if record.Sequence <= lastSequence { return lastSequence, offset, false, fmt.Errorf("%w: non-increasing sequence", errRecordCorrupt) }
+		if err != nil {
+			return lastSequence, offset, false, fmt.Errorf("scan byte %d: %w", offset, err)
+		}
+		if record.Sequence <= lastSequence {
+			return lastSequence, offset, false, fmt.Errorf("%w: non-increasing sequence", errRecordCorrupt)
+		}
 		lastSequence = record.Sequence
 		offset += int64(len(frame))
 	}
@@ -100,35 +139,43 @@ func scanDiskRecords(rd io.Reader) (uint64, int64, bool, error) {
 
 type diskWriterOptions struct {
 	MaxSegmentBytes int64
-	SyncEachAppend bool
+	SyncEachAppend  bool
 }
 
 // diskWriter is private append-only segment I/O. Payload must already be
 // serialized and redacted by Event's private serialization boundary.
 type diskWriter struct {
-	mu sync.Mutex
-	dir string
-	maxBytes int64
+	mu             sync.Mutex
+	dir            string
+	maxBytes       int64
 	syncEachAppend bool
-	file *os.File
-	buf *bufio.Writer
-	segment uint64
-	size int64
-	nextSequence uint64
-	closed bool
-	failed error
-	closeErr error
+	file           *os.File
+	buf            *bufio.Writer
+	segment        uint64
+	size           int64
+	nextSequence   uint64
+	closed         bool
+	failed         error
+	closeErr       error
 }
 
 func openDiskWriter(dir string, opts diskWriterOptions) (*diskWriter, error) {
-	if opts.MaxSegmentBytes <= 0 { opts.MaxSegmentBytes = 64 << 20 }
-	if err := os.MkdirAll(dir, 0o750); err != nil { return nil, err }
+	if opts.MaxSegmentBytes <= 0 {
+		opts.MaxSegmentBytes = 64 << 20
+	}
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return nil, err
+	}
 	w := &diskWriter{dir: dir, maxBytes: opts.MaxSegmentBytes, syncEachAppend: opts.SyncEachAppend}
 	paths, err := diskSegments(dir)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	if len(paths) == 0 {
 		w.segment = 1
-		if err := w.newSegment(); err != nil { return nil, err }
+		if err := w.newSegment(); err != nil {
+			return nil, err
+		}
 		return w, nil
 	}
 	last := paths[len(paths)-1]
@@ -140,11 +187,17 @@ func openDiskWriter(dir string, opts diskWriterOptions) (*diskWriter, error) {
 	// An empty active segment can exist after a rollover interrupted an append.
 	for i, path := range paths {
 		f, err := os.Open(path)
-		if err != nil { return nil, err }
+		if err != nil {
+			return nil, err
+		}
 		lastSequence, valid, tail, scanErr := scanDiskRecords(f)
 		closeErr := f.Close()
-		if scanErr != nil { return nil, scanErr }
-		if closeErr != nil { return nil, closeErr }
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		if closeErr != nil {
+			return nil, closeErr
+		}
 		if tail && i != len(paths)-1 {
 			return nil, fmt.Errorf("%w: incomplete tail in non-active segment %q", errRecordCorrupt, filepath.Base(path))
 		}
@@ -156,11 +209,19 @@ func openDiskWriter(dir string, opts diskWriterOptions) (*diskWriter, error) {
 		}
 		if i == len(paths)-1 {
 			f, err := os.OpenFile(path, os.O_RDWR, 0o640)
-			if err != nil { return nil, err }
-			if tail {
-				if err := f.Truncate(valid); err != nil { f.Close(); return nil, err }
+			if err != nil {
+				return nil, err
 			}
-			if _, err := f.Seek(0, io.SeekEnd); err != nil { f.Close(); return nil, err }
+			if tail {
+				if err := f.Truncate(valid); err != nil {
+					f.Close()
+					return nil, err
+				}
+			}
+			if _, err := f.Seek(0, io.SeekEnd); err != nil {
+				f.Close()
+				return nil, err
+			}
 			w.file, w.buf, w.size = f, bufio.NewWriter(f), valid
 		}
 	}
@@ -211,10 +272,13 @@ func segmentNum(path string) uint64 {
 	}
 	return n
 }
+
 func (w *diskWriter) newSegment() error {
 	path := filepath.Join(w.dir, fmt.Sprintf("segment-%06d.pfs", w.segment))
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o640)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	w.file, w.buf, w.size = f, bufio.NewWriter(f), 0
 	return nil
 }
@@ -222,22 +286,39 @@ func (w *diskWriter) newSegment() error {
 func (w *diskWriter) Append(channelID, streamID uuid.UUID, schema, typeName string, at time.Time, payload []byte) (uint64, uuid.UUID, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if w.closed { return 0, uuid.Nil, ErrClosed }
-	if w.failed != nil { return 0, uuid.Nil, w.failed }
-	r := diskRecord{Version: recordVersion, EventID: uuid.New(), StreamID: streamID, ChannelID: channelID, Sequence: w.nextSequence+1, Timestamp: at.UnixNano(), SchemaFingerprint: schema, Type: typeName, Payload: append(json.RawMessage(nil), payload...)}
-	frame, err := encodeDiskRecord(r)
-	if err != nil { return 0, uuid.Nil, err }
-	if w.size > 0 && w.size+int64(len(frame)) > w.maxBytes {
-		if err := w.rotate(); err != nil { return 0, uuid.Nil, w.failLocked(err) }
+	if w.closed {
+		return 0, uuid.Nil, ErrClosed
 	}
-	if _, err := w.buf.Write(frame); err != nil { return 0, uuid.Nil, w.failLocked(err) }
+	if w.failed != nil {
+		return 0, uuid.Nil, w.failed
+	}
+	r := diskRecord{Version: recordVersion, EventID: uuid.New(), StreamID: streamID, ChannelID: channelID, Sequence: w.nextSequence + 1, Timestamp: at.UnixNano(), SchemaFingerprint: schema, Type: typeName, Payload: append(json.RawMessage(nil), payload...)}
+	frame, err := encodeDiskRecord(r)
+	if err != nil {
+		return 0, uuid.Nil, err
+	}
+	if w.size > 0 && w.size+int64(len(frame)) > w.maxBytes {
+		if err := w.rotate(); err != nil {
+			return 0, uuid.Nil, w.failLocked(err)
+		}
+	}
+	if _, err := w.buf.Write(frame); err != nil {
+		return 0, uuid.Nil, w.failLocked(err)
+	}
 	w.size += int64(len(frame))
 	w.nextSequence = r.Sequence
-	if w.syncEachAppend { if err := w.syncLocked(); err != nil { return 0, uuid.Nil, w.failLocked(err) } }
+	if w.syncEachAppend {
+		if err := w.syncLocked(); err != nil {
+			return 0, uuid.Nil, w.failLocked(err)
+		}
+	}
 	return r.Sequence, r.EventID, nil
 }
+
 func (w *diskWriter) rotate() error {
-	if err := w.flushLocked(); err != nil { return err }
+	if err := w.flushLocked(); err != nil {
+		return err
+	}
 	if err := w.file.Close(); err != nil {
 		w.file, w.buf = nil, nil
 		return err
@@ -246,31 +327,53 @@ func (w *diskWriter) rotate() error {
 	w.segment++
 	return w.newSegment()
 }
+
 func (w *diskWriter) Flush() error {
-	w.mu.Lock(); defer w.mu.Unlock()
-	if w.closed { return ErrClosed }
-	if w.failed != nil { return w.failed }
-	if err := w.flushLocked(); err != nil { return w.failLocked(err) }
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.closed {
+		return ErrClosed
+	}
+	if w.failed != nil {
+		return w.failed
+	}
+	if err := w.flushLocked(); err != nil {
+		return w.failLocked(err)
+	}
 	return nil
 }
+
 func (w *diskWriter) flushLocked() error { return w.buf.Flush() }
+
 func (w *diskWriter) Sync() error {
-	w.mu.Lock(); defer w.mu.Unlock()
-	if w.closed { return ErrClosed }
-	if w.failed != nil { return w.failed }
-	if err := w.syncLocked(); err != nil { return w.failLocked(err) }
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.closed {
+		return ErrClosed
+	}
+	if w.failed != nil {
+		return w.failed
+	}
+	if err := w.syncLocked(); err != nil {
+		return w.failLocked(err)
+	}
 	return nil
 }
+
 func (w *diskWriter) syncLocked() error {
-	if err := w.flushLocked(); err != nil { return err }
+	if err := w.flushLocked(); err != nil {
+		return err
+	}
 	return w.file.Sync()
 }
+
 func (w *diskWriter) failLocked(err error) error {
 	if w.failed == nil {
 		w.failed = err
 	}
 	return w.failed
 }
+
 func (w *diskWriter) Close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
