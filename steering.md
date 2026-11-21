@@ -60,13 +60,8 @@ Maintain a small, typed, concurrency-safe Go event-stream library. Keep the live
 - If interrupted, state exact stopping point and uncommitted/unpushed state. Never present unverified work as done.
 
 ## Current handoff (2026-11-22)
-- Repository: `gunesis-game/pulsyflux-stream`; branch: `main`.
-- Latest code HEAD: `bdc28eff2791872be6ed44c00162ba3708ac3b81`.
-- Latest CI run for exact SHA: [44962725592](https://github.com/gunesis-game/pulsyflux-stream/actions/runs/44962725592), completed successfully. Linux and Windows jobs passed; CI also includes formatting, race-enabled tests/coverage, vet, and build. No local Go execution is claimed.
-- Recent verified code commits: `c01d130` moved Event payload validation/redaction helpers to `event.go`; `9ad8982` renamed helpers to event-owned names; `bdc28ef` updated remaining schema adapter references. All are pushed to main and latest exact-SHA CI passed.
-- Refactor remains incomplete: `channel.go` and `stream.go` still depend on schema identity providers; `schema.go` contains canonical type descriptors, fingerprint composition, Event/Stream/Channel identity composition and encode/decode adapters; `storage_disk.go` persists UUIDs for Event, Stream and Channel plus six fingerprints.
-- Agreed target: type-derived identities `EventChannel[TStream]` and `Stream[TStream,TEvent]`, using package-qualified stable Go type names; no channel/stream UUIDs, fingerprint framework, identity catalog, deterministic UUIDs, or `schema.go`. Keep event UUIDs.
-- Next: redesign `diskRecord` around Event UUID + type-derived Channel/Stream identity strings + sequence/timestamp/redacted payload; increment record version and explicitly decide old-version compatibility (currently no migration requirement agreed). Update append, decode, recovery, replay and tests together.
-- After record redesign: remove identity/fingerprint adapters and delete `schema.go` / obsolete schema tests; move remaining Event-owned serialization/redaction into `event.go`; update README and both storage docs.
-- Acceptance: no UUID identity for channel/stream; type-derived identifiers; no fingerprints or `schema.go`; Event behavior retained; storage format and docs align; exact-SHA Linux/Windows CI passes. After CI, inspect jobs and compare coverage.
-- Risk/open issue: record format change requires a clear compatibility/version policy before removing v2 readers. `docs/storage_disk.md` still describes UUID identities and fingerprints and is not aligned with target design.
+- Repository: `gunesis-game/pulsyflux-stream`, branch `main`.
+- Latest verified code commit: `fa5082fd6dc008453c9a50140c9fd7c8389027a7`; CI run [44963453756](https://github.com/gunesis-game/pulsyflux-stream/actions/runs/44963453756) passed Ubuntu and Windows, including formatting, race tests/coverage, vet and build.
+- Current code still has schema fingerprints, UUID stream/channel identities, and version-2 disk records. The agreed architecture in this file remains the target; no migration compatibility decision has been made.
+- Next checkpoint: remove Event serialization adapters from `schema.go`; use Event codec directly from Event tests; retain storage identity/fingerprint layer until disk-record redesign is ready. Then redesign disk records and recovery/replay/tests together.
+- Risk: storage redesign is breaking on-disk format; compatibility policy remains open. `docs/storage_disk.md` remains outdated.
