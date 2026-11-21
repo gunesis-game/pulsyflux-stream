@@ -53,11 +53,6 @@ func (e *Event[T]) SetData(data T) error {
 	return nil
 }
 
-// TypeName returns the event name derived from T.
-func (e Event[T]) TypeName() string {
-	return eventTypeName[T]()
-}
-
 func eventTypeName[T any]() string {
 	t := reflect.TypeOf((*T)(nil)).Elem()
 	for t.Kind() == reflect.Pointer {
