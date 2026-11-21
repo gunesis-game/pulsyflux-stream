@@ -7,8 +7,7 @@ import (
 )
 
 // EventChannel is a logical grouping identity for related typed streams.
-// Its UUID is independent of the in-memory registry and can be persisted by
-// applications that need to reconstruct the same logical channel later.
+// Its private UUID scopes the channel's in-memory typed stream registrations.
 type EventChannel struct {
 	id uuid.UUID
 
@@ -22,7 +21,7 @@ func NewEventChannel() *EventChannel {
 }
 
 // Close closes every stream registered under this channel UUID. The channel
-// identity remains valid for reconstruction with NewEventChannelWithID.
+// private identity remains unchanged for the lifetime of this handle.
 func (channel *EventChannel) Close() {
 	if channel == nil {
 		return
