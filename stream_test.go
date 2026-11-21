@@ -220,10 +220,10 @@ func TestPublishIsAtomicWhenSubscriberIsFull(t *testing.T) {
 	}
 	select {
 	case got := <-fast.Events():
-		t.Fatalf("partial delivery occurred: fast subscriber unexpectedly got %d", got.Data)
+		t.Fatalf("partial delivery occurred: fast subscriber unexpectedly got %d", got.Data())
 	default:
 	}
-	if got := <-slow.Events(); got.Data != 1 {
+	if got := <-slow.Events(); got.Data() != 1 {
 		t.Fatalf("slow subscriber got unexpected event: %d", got.Data)
 	}
 }
