@@ -28,7 +28,6 @@ var (
 	ErrUnsetEventData = errors.New("stream: event data was not set")
 )
 
-
 type subscriber[T any] struct {
 	ch   chan Event[T]
 	done chan struct{}
@@ -68,7 +67,7 @@ type Stream[T any] struct {
 	nextID     uint64
 	subs       map[uint64]*subscriber[T]
 	bufferSize int
-	closed     bool
+	closed      bool
 }
 
 // New creates a stream with bufferSize slots per subscriber and registers it
