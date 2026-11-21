@@ -169,7 +169,7 @@ func TestEventChannelCloseClosesOwnedStreams(t *testing.T) {
 	if err := first.Publish(Event[int]{}); !errors.Is(err, ErrClosed) {
 		t.Fatalf("first stream publish: got %v, want ErrClosed", err)
 	}
-	if err := second.Publish(Event[string]{}); !errors.Is(err, ErrClosed) {
+	if err := second.Publish(Event[string]{redactionPolicy: NewRedactionPolicy()}); !errors.Is(err, ErrClosed) {
 		t.Fatalf("second stream publish: got %v, want ErrClosed", err)
 	}
 	if _, ok := <-firstSub.Events(); ok {
@@ -185,7 +185,7 @@ func TestEventChannelCloseClosesOwnedStreams(t *testing.T) {
 
 func TestPublishRejectsEventWithoutSetData(t *testing.T) {
 	s := newTestStream[int](t, 1)
-	if err := s.Publish(Event[int]{}); !errors.Is(err, ErrUnsetEventData) {
+	if err := s.Publish(Event[int]{redactionPolicy: NewRedactionPolicy()}); !errors.Is(err, ErrUnsetEventData) {
 		t.Fatalf("got %v, want ErrUnsetEventData", err)
 	}
 }
@@ -277,7 +277,7 @@ func TestClose(t *testing.T) {
 	}
 	s.Close()
 	s.Close()
-	if err := s.Publish(Event[int]{}); !errors.Is(err, ErrClosed) {
+	if err := s.Publish(Event[int]{redactionPolicy: NewRedactionPolicy()}); !errors.Is(err, ErrClosed) {
 		t.Fatalf("got %v, want ErrClosed", err)
 	}
 	if _, ok := <-sub.Events(); ok {
@@ -311,7 +311,16 @@ func TestConcurrentPublishAndSubscribe(t *testing.T) {
 		go func(base int) {
 			defer wg.Done()
 			for n := 0; n < 100; n++ {
-				err := s.Publish(newTestEvent(t, base*100 + n))
+				event, err := NewEvent[int](NewRedactionPolicy())
+				if err != nil {
+					t.Errorf("NewEvent: %v", err)
+					return
+				}
+				if err := event.SetData(base*100 + n); err != nil {
+					t.Errorf("SetData: %v", err)
+					return
+				}
+				err = s.Publish(event)
 				if err != nil && !errors.Is(err, ErrSlowSubscriber) {
 					t.Errorf("Publish: %v", err)
 					return
