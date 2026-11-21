@@ -1,10 +1,9 @@
 package stream
 
 import (
-	"encoding/json"
 	"fmt"
-	"reflect"
 	"strings"
+	"reflect"
 	"time"
 )
 
@@ -57,84 +56,23 @@ func (e *Event[T]) SetData(data T) error {
 	return nil
 }
 
-func eventTypeName[T any]() string {
-	t := reflect.TypeOf((*T)(nil)).Elem()
-	for t.Kind() == reflect.Pointer {
-		t = t.Elem()
-	}
-	if t.Name() != "" {
-		return t.Name()
-	}
-	return t.String()
-}
-
 // Data returns the original, unredacted typed payload.
 func (e *Event[T]) Data() T {
 	return e.data
 }
 
-// eventEnvelope is the private persisted representation.
-type eventEnvelope struct {
-	Type string          `json:"type"`
-	Data json.RawMessage `json:"data"`
-	Time time.Time       `json:"time"`
-}
-
-// serialize returns the redacted persisted representation. It never modifies
-// the live payload or redactionPolicy.
+// serialize delegates the private event wire encoding to schema.go.
 func (e *Event[T]) serialize() ([]byte, error) {
-	if !e.dataSet {
-		return nil, ErrUnsetEventData
-	}
-	raw, err := json.Marshal(e.data)
-	if err != nil {
-		return nil, fmt.Errorf("marshal event data: %w", err)
-	}
-
-	var payload any
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		return nil, fmt.Errorf("decode event data for redaction: %w", err)
-	}
-	for _, path := range e.redactionPolicy.exclude {
-		redactPath(payload, strings.Split(path, "."))
-	}
-
-	redacted, err := json.Marshal(payload)
-	if err != nil {
-		return nil, fmt.Errorf("marshal redacted event data: %w", err)
-	}
-
-	return json.Marshal(eventEnvelope{Type: eventTypeName[T](), Data: redacted, Time: e.time})
+	encoded, _, _, err := encodeEventSchema(e)
+	return encoded, err
 }
 
-// deserialize rebuilds an event using the caller-provided redaction policy. RedactionPolicy is
-// intentionally not stored in the serialized envelope.
+// deserialize delegates schema-aware reconstruction to schema.go. The
+// compatibility helper supplies the current type's fingerprint; replay paths
+// must pass the fingerprint stored with the disk record to decodeEventSchema.
 func deserialize[T any](raw []byte, redactionPolicy RedactionPolicy) (Event[T], error) {
-	event, err := NewEvent[T](redactionPolicy)
-	if err != nil {
-		return Event[T]{}, fmt.Errorf("invalid event redaction policy: %w", err)
-	}
-
-	var envelope eventEnvelope
-	if err := json.Unmarshal(raw, &envelope); err != nil {
-		return Event[T]{}, fmt.Errorf("deserialize event envelope: %w", err)
-	}
-	if envelope.Type != eventTypeName[T]() {
-		return Event[T]{}, fmt.Errorf("deserialize event: type mismatch, got %q want %q", envelope.Type, eventTypeName[T]())
-	}
-	if len(envelope.Data) == 0 {
-		return Event[T]{}, fmt.Errorf("deserialize event: missing data")
-	}
-
-	var data T
-	if err := json.Unmarshal(envelope.Data, &data); err != nil {
-		return Event[T]{}, fmt.Errorf("deserialize event data: %w", err)
-	}
-	if err := event.SetData(data); err != nil {
-		return Event[T]{}, fmt.Errorf("validate event data: %w", err)
-	}
-	event.time = envelope.Time
-	return event, nil
+	fingerprint := schemaFingerprint(reflect.TypeOf((*T)(nil)).Elem(), schemaEvent)
+	return decodeEventSchema[T](raw, fingerprint, redactionPolicy)
 }
 
 // validate checks the redaction paths against the payload type T.
