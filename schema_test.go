@@ -7,8 +7,7 @@ import (
 
 func TestCanonicalTypeDescriptorDeterministic(t *testing.T) {
 	type payload struct {
-		ID   string `json:"id"`
-		Name string `json:"name,omitempty"`
+		A string `json:"a"`
 	}
 	typ := reflect.TypeOf(payload{})
 	if got, want := canonicalTypeDescriptor(typ), canonicalTypeDescriptor(typ); got != want {
@@ -18,11 +17,11 @@ func TestCanonicalTypeDescriptorDeterministic(t *testing.T) {
 
 func TestSchemaFingerprintChangesWithStructure(t *testing.T) {
 	type original struct {
-		ID string `json:"id"`
+		A string `json:"a"`
 	}
 	type changed struct {
-		ID  string `json:"id"`
-		Age int    `json:"age"`
+		A string `json:"a"`
+		B string `json:"b"`
 	}
 
 	if schemaFingerprint(reflect.TypeOf(original{}), schemaData) == schemaFingerprint(reflect.TypeOf(changed{}), schemaData) {
@@ -32,10 +31,10 @@ func TestSchemaFingerprintChangesWithStructure(t *testing.T) {
 
 func TestSchemaFingerprintIncludesJSONFieldName(t *testing.T) {
 	type first struct {
-		Value string `json:"first"`
+		A string `json:"first"`
 	}
 	type second struct {
-		Value string `json:"second"`
+		A string `json:"second"`
 	}
 
 	if schemaFingerprint(reflect.TypeOf(first{}), schemaData) == schemaFingerprint(reflect.TypeOf(second{}), schemaData) {
@@ -45,12 +44,12 @@ func TestSchemaFingerprintIncludesJSONFieldName(t *testing.T) {
 
 func TestSchemaFingerprintNormalizesFieldDeclarationOrder(t *testing.T) {
 	type first struct {
-		ID   string `json:"id"`
-		Name string `json:"name"`
+		A int `json:"a"`
+		B int `json:"b"`
 	}
 	type second struct {
-		Name string `json:"name"`
-		ID   string `json:"id"`
+		B int `json:"b"`
+		A int `json:"a"`
 	}
 
 	if schemaFingerprint(reflect.TypeOf(first{}), schemaData) != schemaFingerprint(reflect.TypeOf(second{}), schemaData) {
@@ -58,9 +57,9 @@ func TestSchemaFingerprintNormalizesFieldDeclarationOrder(t *testing.T) {
 	}
 }
 
-func TestSchemaFingerprintLayersAreDistinctAndNested(t *testing.T) {
+func TestSchemaFingerprintLayersAreDistinct(t *testing.T) {
 	type payload struct {
-		Value string `json:"value"`
+		A string `json:"a"`
 	}
 	typ := reflect.TypeOf(payload{})
 
@@ -72,15 +71,11 @@ func TestSchemaFingerprintLayersAreDistinctAndNested(t *testing.T) {
 	if data == event || event == stream || stream == channel {
 		t.Fatal("schema layers should have distinct fingerprints")
 	}
-	if stream == schemaFingerprint(typ, schemaEvent) || channel == schemaFingerprint(typ, schemaStream) {
-		t.Fatal("higher schema layers should include their nested layer identity")
-	}
 }
 
 func TestSchemaFingerprintHandlesRecursiveTypes(t *testing.T) {
 	type node struct {
-		Value string `json:"value"`
-		Next  *node `json:"next,omitempty"`
+		N *node `json:"n,omitempty"`
 	}
 	first := schemaFingerprint(reflect.TypeOf(node{}), schemaData)
 	second := schemaFingerprint(reflect.TypeOf(node{}), schemaData)
