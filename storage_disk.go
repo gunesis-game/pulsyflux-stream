@@ -449,6 +449,9 @@ func (w *diskWriter) Append(channelID, streamID uuid.UUID, schemas schemaFingerp
 	if w.failed != nil {
 		return 0, uuid.Nil, w.failed
 	}
+	if !schemas.valid() {
+		return 0, uuid.Nil, fmt.Errorf("%w: missing schema fingerprint", errRecordCorrupt)
+	}
 	r := diskRecord{Version: recordVersion, EventID: uuid.New(), StreamID: streamID, ChannelID: channelID, Sequence: w.nextSequence + 1, Timestamp: at.UnixNano(), EventBaseFingerprint: schemas.EventBase, EventEffectiveFingerprint: schemas.EventEffective, StreamBaseFingerprint: schemas.StreamBase, StreamEffectiveFingerprint: schemas.StreamEffective, ChannelBaseFingerprint: schemas.ChannelBase, ChannelEffectiveFingerprint: schemas.ChannelEffective, Payload: append(json.RawMessage(nil), payload...)}
 	frame, err := encodeDiskRecord(r)
 	if err != nil {
