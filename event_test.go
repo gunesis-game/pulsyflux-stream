@@ -94,7 +94,7 @@ func TestEventEncodingWritesDirectRedactedPayload(t *testing.T) {
 }
 
 func TestEventDecodeRejectsInvalidJSON(t *testing.T) {
-	type payload struct { Value string }
+	type payload struct{ Value string }
 	if _, err := decodeEventPayload[payload]([]byte("not json"), NewRedactionPolicy()); err == nil {
 		t.Fatal("expected invalid JSON error")
 	}
