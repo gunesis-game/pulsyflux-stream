@@ -16,7 +16,7 @@ func TestNewEventNormalizesRedactionPathWhitespace(t *testing.T) {
 	if err := event.SetData(payload{Value: "secret"}); err != nil {
 		t.Fatal(err)
 	}
-	raw, _, err := encodeSchema(event.Data(), event.redactionPolicy)
+	raw, err := encodeEventPayload(event.Data(), event.redactionPolicy)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func TestRedactionPolicyRejectsEmptyAndDuplicatePaths(t *testing.T) {
 	}
 }
 
-func TestSchemaEncodingWritesDirectRedactedPayload(t *testing.T) {
+func TestEventEncodingWritesDirectRedactedPayload(t *testing.T) {
 	type user struct {
 		Name     string `json:"name"`
 		Password string `json:"password"`
@@ -71,7 +71,7 @@ func TestSchemaEncodingWritesDirectRedactedPayload(t *testing.T) {
 	}
 	value := payload{Users: []user{{Name: "Ada", Password: "secret"}}}
 	policy := NewRedactionPolicy("users.password")
-	raw, identity, err := encodeSchema(value, policy)
+	raw, err := encodeEventPayload(value, policy)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ func TestSchemaEncodingWritesDirectRedactedPayload(t *testing.T) {
 	if value.Users[0].Password != "secret" {
 		t.Fatal("redaction mutated source data")
 	}
-	restored, err := decodeSchema[payload](raw, identity, policy)
+	restored, err := decodeEventPayload[payload](raw, policy)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,18 +93,10 @@ func TestSchemaEncodingWritesDirectRedactedPayload(t *testing.T) {
 	}
 }
 
-func TestSchemaDecodeRejectsIdentityMismatch(t *testing.T) {
-	type payload struct {
-		Value string `json:"value"`
-	}
-	policy := NewRedactionPolicy()
-	raw, identity, err := encodeSchema(payload{Value: "ok"}, policy)
-	if err != nil {
-		t.Fatal(err)
-	}
-	identity.Effective += "x"
-	if _, err := decodeSchema[payload](raw, identity, policy); err == nil {
-		t.Fatal("expected schema identity mismatch")
+func TestEventDecodeRejectsInvalidJSON(t *testing.T) {
+	type payload struct { Value string }
+	if _, err := decodeEventPayload[payload]([]byte("not json"), NewRedactionPolicy()); err == nil {
+		t.Fatal("expected invalid JSON error")
 	}
 }
 
