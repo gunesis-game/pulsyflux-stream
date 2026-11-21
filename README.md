@@ -70,7 +70,7 @@ func main() {
 	}
 
 	event = <-sub.Events()
-	fmt.Printf("%s: %s\n", eventTypeName(), event.Data().PlayerID)
+	fmt.Printf("player joined: %s\n", event.Data().PlayerID)
 
 	_ = left // This channel can own other independently typed streams too.
 }
