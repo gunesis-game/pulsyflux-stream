@@ -263,6 +263,69 @@ func TestDiskWriterRecoversAfterRotationSegmentCreationFailure(t *testing.T) {
 	}
 }
 
+func TestDiskWriterSyncEachAppendFlushesAcrossRotation(t *testing.T) {
+	dir := t.TempDir()
+	writer, err := openDiskWriter(dir, diskWriterOptions{
+		MaxSegmentBytes: 220,
+		SyncEachAppend:  true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	channelID, streamID := uuid.New(), uuid.New()
+	for expected := uint64(1); expected <= 4; expected++ {
+		sequence, _, err := writer.Append(channelID, streamID, "schema", "event", time.Now(),
+			[]byte(`{"payload":"large enough to force segment rotation"}`))
+		if err != nil {
+			t.Fatalf("append %d: %v", expected, err)
+		}
+		if sequence != expected {
+			t.Fatalf("sequence=%d want=%d", sequence, expected)
+		}
+
+		activePath := filepath.Join(dir, fmt.Sprintf("segment-%06d.pfs", writer.segment))
+		info, err := os.Stat(activePath)
+		if err != nil {
+			t.Fatalf("stat active segment after append %d: %v", expected, err)
+		}
+		if info.Size() == 0 {
+			t.Fatalf("active segment %q was not flushed after append %d", activePath, expected)
+		}
+	}
+
+	segments, err := diskSegments(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(segments) < 2 {
+		t.Fatalf("expected rotation with SyncEachAppend, found %d segment(s)", len(segments))
+	}
+
+	// The reader must see every acknowledged append before the writer closes.
+	reader, err := openDiskReader(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	for expected := uint64(1); expected <= 4; expected++ {
+		record, err := reader.Next()
+		if err != nil {
+			t.Fatalf("read sequence %d before writer close: %v", expected, err)
+		}
+		if record.Sequence != expected {
+			t.Fatalf("read sequence=%d want=%d", record.Sequence, expected)
+		}
+	}
+	if _, err := reader.Next(); !errors.Is(err, io.EOF) {
+		t.Fatalf("expected EOF before writer close, got %v", err)
+	}
+
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestDiskWriterSequenceTailRecoveryAndRollover(t *testing.T) {
 	dir := t.TempDir()
 	w, err := openDiskWriter(dir, diskWriterOptions{MaxSegmentBytes: 220})
