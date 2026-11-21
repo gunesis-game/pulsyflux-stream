@@ -61,12 +61,12 @@ Maintain a small, typed, concurrency-safe Go event-stream library. Keep the live
 
 ## Current handoff (2026-11-22)
 - Repository: `gunesis-game/pulsyflux-stream`; branch: `main`.
-- HEAD at handoff update: `8b2d3f4bfe3cf3554d68ab1a7d99aea191296831`.
-- Recent claimed commits: `7d98b99` (remove EventChannel UUID identity), `e6a82cc` (remove remaining UUID checks), `8b2d3f4` (formatting correction). Verify these commits and resulting diff before relying on the descriptions.
-- Confirmed via GitHub ref lookup that main points to the SHA above. Latest code work is only a partial channel UUID removal; the type-derived identity refactor is NOT complete.
-- CI for the exact latest code SHA is not verified. No local Go test/build is claimed. Previous reported CI trigger limitation remains unconfirmed.
-- Agreed design: `EventChannel[TStream]` identity string is `EventChannel[TStream.name]`; `Stream[TStream,TEvent]` identity is `Stream[TStream.name,TEvent]`. No channel/stream UUIDs, fingerprint framework, identity catalog or deterministic UUID derivation. Keep event UUIDs. Remove `schema.go`; move required Event validation/redaction/serialization code into `event.go`.
-- Current next task: audit main after the partial UUID changes; finish UUID removal in stream/channel, implement type-derived identities, migrate disk record identity fields away from fingerprints, move Event functionality out of schema.go and delete schema.go/tests, then update code/tests/docs together.
-- Required tests: identity string stability and package/type distinction, multiple event streams per channel, duplicate stream registration, redaction/validation regressions, storage record encode/decode/recovery and malformed records, concurrency, and compatibility/version expectations for the changed disk record.
-- Acceptance: no UUID identity for channel/stream; type-derived channel/stream identity; no schema.go/fingerprint framework; Event behavior retained in event.go; disk format and docs agree; exact-SHA Linux/Windows CI passes with coverage comparison.
-- `docs/storage_disk.md` alignment is not yet verified for the new record identity design.
+- Latest code HEAD: `bdc28eff2791872be6ed44c00162ba3708ac3b81`.
+- Latest CI run for exact SHA: [44962725592](https://github.com/gunesis-game/pulsyflux-stream/actions/runs/44962725592), completed successfully. Linux and Windows jobs passed; CI also includes formatting, race-enabled tests/coverage, vet, and build. No local Go execution is claimed.
+- Recent verified code commits: `c01d130` moved Event payload validation/redaction helpers to `event.go`; `9ad8982` renamed helpers to event-owned names; `bdc28ef` updated remaining schema adapter references. All are pushed to main and latest exact-SHA CI passed.
+- Refactor remains incomplete: `channel.go` and `stream.go` still depend on schema identity providers; `schema.go` contains canonical type descriptors, fingerprint composition, Event/Stream/Channel identity composition and encode/decode adapters; `storage_disk.go` persists UUIDs for Event, Stream and Channel plus six fingerprints.
+- Agreed target: type-derived identities `EventChannel[TStream]` and `Stream[TStream,TEvent]`, using package-qualified stable Go type names; no channel/stream UUIDs, fingerprint framework, identity catalog, deterministic UUIDs, or `schema.go`. Keep event UUIDs.
+- Next: redesign `diskRecord` around Event UUID + type-derived Channel/Stream identity strings + sequence/timestamp/redacted payload; increment record version and explicitly decide old-version compatibility (currently no migration requirement agreed). Update append, decode, recovery, replay and tests together.
+- After record redesign: remove identity/fingerprint adapters and delete `schema.go` / obsolete schema tests; move remaining Event-owned serialization/redaction into `event.go`; update README and both storage docs.
+- Acceptance: no UUID identity for channel/stream; type-derived identifiers; no fingerprints or `schema.go`; Event behavior retained; storage format and docs align; exact-SHA Linux/Windows CI passes. After CI, inspect jobs and compare coverage.
+- Risk/open issue: record format change requires a clear compatibility/version policy before removing v2 readers. `docs/storage_disk.md` still describes UUID identities and fingerprints and is not aligned with target design.
