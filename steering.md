@@ -93,18 +93,19 @@ Do not introduce a public storage API until the internal storage contract and du
 ## Current handoff — schema-aware event codec centralized; replay next (2026-11-21)
 
 ### Repository and verified checkpoint
-- Repository: `gunesis-game/pulsyflux-stream`; work directly on `main`, no branches.
-- Exact code SHA tested: `44c7ee35221899017b4edaaaceae06c65706518f`.
-- CI run [44903635287](https://github.com/gunesis-game/pulsyflux-stream/actions/runs/44903635287), run #178, completed successfully for that exact SHA. Cleanup and both Linux/Windows jobs passed formatting, race-enabled tests, coverage report generation, artifact upload, vet, and build.
-- Aggregate coverage: Linux **83.9%**, Windows **83.9%**. All 54 per-function entries match. Statement profiles have the same 464 blocks; one `stream.go` publish-send block has execution counts 807 vs. 806, but is covered on both platforms. This is an expected count variation, not a missing-coverage difference.
-- No local Go test execution is claimed. This codec change does not alter disk framing or persisted record layout; `docs/storage_disk.md` remains applicable and unchanged.
+- Repository: `gunesis-game/pulsyflux-stream`; branch: `main` only. Exact current HEAD: `9a6edad0d8810c87a57ee011b28d535ea1b54209`.
+- Exact Go code SHA tested: `3f5ea41c959ad7a0e2be34c9827381cc2a613585`; the current HEAD adds only the CI formatting-diagnostic improvement.
+- CI run [44903985022](https://github.com/gunesis-game/pulsyflux-stream/actions/runs/44903985022), run #181, completed successfully for exact current HEAD `9a6edad0d8810c87a57ee011b28d535ea1b54209`. Cleanup and both Linux/Windows jobs passed formatting, race-enabled tests, coverage report generation, artifact upload, vet, and build.
+- Aggregate coverage: Linux **83.9%**, Windows **83.9%**. All 55 per-function entries match. Coverage profiles have the same 467 statement blocks and identical execution counts.
+- CI formatting verification remains non-mutating and now prints the `gofmt -d` diff as well as offending filenames when formatting fails.
+- No local Go test execution is claimed. The codec refactor does not alter disk framing or persisted record layout; `docs/storage_disk.md` remains applicable and unchanged.
 
 ### Completed codec ownership change
 - `Event[T]` remains the typed domain model in `event.go`: payload, timestamp, redaction policy, payload assignment, validation, and access.
-- `schema.go` owns the private event envelope, event type-name derivation, schema-aware redaction/serialization, schema fingerprint derivation for the event layer, and decoding with persisted fingerprint/type validation.
+- `schema.go` owns JSON encodability validation, the private event envelope, event type-name derivation, redaction transformation, schema-aware serialization, event-layer fingerprint derivation, and decoding with persisted fingerprint/type validation.
 - `encodeEventSchema` returns the opaque encoded envelope plus its schema fingerprint and type name for internal persistence. `decodeEventSchema` requires the fingerprint stored with the record and rejects mismatches before reconstructing the typed event.
 - Redaction policy is intentionally supplied by the registered typed stream during decode; it is not persisted in the envelope. Persisted redacted data cannot restore excluded values.
-- Tests exercise the schema codec directly, preserve redaction and timestamp round-trip behavior, and reject a mismatched fingerprint.
+- Tests exercise the schema codec directly, preserve redaction and timestamp round-trip behavior, reject mismatched fingerprints, and retain rejection of non-JSON payloads before assignment.
 - Storage remains opaque and does not own payload types or redaction rules. No public serializer, deserializer, fingerprint, UUID, or storage-record API was added.
 
 ### Next task: design channel/stream replay delivery
