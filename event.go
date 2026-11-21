@@ -21,7 +21,7 @@ func NewRedactionPolicy(exclude ...string) RedactionPolicy {
 }
 
 // Event is a typed event with metadata and a payload governed by a redaction
-// redaction policy. Data is intentionally private so assignments go through
+// policy. Data is intentionally private so assignments go through
 // SetData.
 type Event[T any] struct {
 	time time.Time
@@ -34,6 +34,9 @@ type Event[T any] struct {
 // NewEvent constructs an event and validates its redactionPolicy against T.
 func NewEvent[T any](redactionPolicy RedactionPolicy) (Event[T], error) {
 	redactionPolicy.exclude = append([]string(nil), redactionPolicy.exclude...)
+	for i, path := range redactionPolicy.exclude {
+		redactionPolicy.exclude[i] = strings.TrimSpace(path)
+	}
 	event := Event[T]{time: time.Now(), redactionPolicy: redactionPolicy}
 	if err := event.validate(); err != nil {
 		return Event[T]{}, fmt.Errorf("invalid event redaction policy: %w", err)
