@@ -23,7 +23,6 @@ func NewPolicy(exclude ...string) Policy {
 // Event is a typed event with metadata and a payload governed by a redaction
 // policy. Data is intentionally private so assignments go through SetData.
 type Event[T any] struct {
-	Name string    `json:"name"`
 	Time time.Time `json:"time"`
 
 	data    T
@@ -54,6 +53,22 @@ func (e *Event[T]) SetData(data T) error {
 	return nil
 }
 
+// TypeName returns the event name derived from T.
+func (e Event[T]) TypeName() string {
+	return eventTypeName[T]()
+}
+
+func eventTypeName[T any]() string {
+	t := reflect.TypeOf((*T)(nil)).Elem()
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	if t.Name() != "" {
+		return t.Name()
+	}
+	return t.String()
+}
+
 // Data returns the original, unredacted typed payload.
 func (e *Event[T]) Data() T {
 	return e.data
@@ -61,7 +76,7 @@ func (e *Event[T]) Data() T {
 
 // eventEnvelope is the private persisted representation.
 type eventEnvelope struct {
-	Name string          `json:"name"`
+	Type string          `json:"type"`
 	Data json.RawMessage `json:"data"`
 	Time time.Time       `json:"time"`
 }
@@ -90,7 +105,7 @@ func (e *Event[T]) serialize() ([]byte, error) {
 		return nil, fmt.Errorf("marshal redacted event data: %w", err)
 	}
 
-	return json.Marshal(eventEnvelope{Name: e.Name, Data: redacted, Time: e.Time})
+	return json.Marshal(eventEnvelope{Type: eventTypeName[T](), Data: redacted, Time: e.Time})
 }
 
 // deserialize rebuilds an event using the caller-provided policy. Policy is
@@ -105,6 +120,9 @@ func deserialize[T any](raw []byte, policy Policy) (Event[T], error) {
 	if err := json.Unmarshal(raw, &envelope); err != nil {
 		return Event[T]{}, fmt.Errorf("deserialize event envelope: %w", err)
 	}
+	if envelope.Type != eventTypeName[T]() {
+		return Event[T]{}, fmt.Errorf("deserialize event: type mismatch, got %q want %q", envelope.Type, eventTypeName[T]())
+	}
 	if len(envelope.Data) == 0 {
 		return Event[T]{}, fmt.Errorf("deserialize event: missing data")
 	}
@@ -116,7 +134,6 @@ func deserialize[T any](raw []byte, policy Policy) (Event[T], error) {
 	if err := event.SetData(data); err != nil {
 		return Event[T]{}, fmt.Errorf("validate event data: %w", err)
 	}
-	event.Name = envelope.Name
 	event.Time = envelope.Time
 	return event, nil
 }
