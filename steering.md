@@ -275,3 +275,46 @@ If implementation is mid-flight, record the exact stopping point, uncommitted or
 - Recovery review remains complete: the disk scanner processes frames incrementally; recovery tests cover incomplete active tails, non-active tails, complete corruption, and sequence regression. No recovery rewrite is warranted from the current evidence.
 - Keep indexing deferred until a concrete lookup/seek requirement and contract are defined.
 - Parent-directory sync durability remains deferred until supported platforms and the crash-durability contract are defined.
+
+## Session handoff — non-mutating formatting gate fixed and verified (2026-11-21)
+
+### Authoritative repository and CI state
+- Repository: `gunesis-game/pulsyflux-stream`; branch: `main`.
+- Latest implementation HEAD: `19048e3843f623bcb034860a647c2ac4b680a9c9` — `style: format disk storage tests`.
+- Formatting commits in this iteration:
+  - `bfd168bf284497751d5362d759ed1bf1f2777ac2` — formatted `storage_disk.go`.
+  - `19048e3843f623bcb034860a647c2ac4b680a9c9` — formatted `storage_disk_test.go`.
+- The workflow change removing the mutating `gofmt -w` step remains in commit `f0270afeb0ba6d7002ab7624fbb2caacb83b9529`. The current formatting gate runs `gofmt -l .`, prints offending filenames, and fails without changing the checkout.
+- CI run [44897481661](https://github.com/gunesis-game/pulsyflux-stream/actions/runs/44897481661) completed successfully for the exact latest implementation HEAD `19048e3843f623bcb034860a647c2ac4b680a9c9`.
+- Job `Test and build` passed all steps: checkout, Go setup, non-mutating formatting verification, `go test -race -cover ./...`, `go vet ./...`, and `go build ./...`.
+- Test result: package passed with **81.9% statement coverage**. Vet and build completed successfully.
+- The first formatting commit `bfd168b` triggered run [44897325454](https://github.com/gunesis-game/pulsyflux-stream/actions/runs/44897325454), which failed only at `Verify formatting` because `storage_disk_test.go` still needed formatting. Tests, vet, and build were skipped in that run. The second formatting commit fixed the remaining file; run 44897481661 verified the final tree.
+- Earlier run [44896560030](https://github.com/gunesis-game/pulsyflux-stream/actions/runs/44896560030) had exposed both files (`storage_disk.go` and `storage_disk_test.go`) before either was formatted. That issue is now resolved.
+- No CI run is expected for this Markdown-only steering checkpoint commit. Do not claim that CI tested the steering update itself.
+
+### Changes and post-CI analysis
+- Formatted only `storage_disk.go` and `storage_disk_test.go`; no intended behavior, public API, test assertions, or storage invariants were changed.
+- The formatting check now validates the committed tree rather than repairing it in the runner. This closes the false-green formatting-gate gap.
+- CI verifies the resulting source using the repository's configured Go 1.27.x toolchain. A local Go 1.23.2 `gofmt` binary was used to prepare the formatting, and the CI formatting check confirms the final committed files are accepted by the configured toolchain.
+- No local Go tests, vet, or build were claimed. GitHub Actions is the verification source.
+- Reviewed `docs/storage_disk.md`; it remains consistent because this iteration was formatting-only. No architecture-document update was needed.
+- No new functional or test-coverage gap was identified by this formatting-only iteration. The CI coverage result remains 81.9%; this is a measurement, not by itself evidence that every edge case is covered.
+
+### Next task — define the disk segment directory-durability contract before implementation
+- Known limitation: syncing a segment file does not necessarily make a newly created directory entry durable across sudden power loss. The current writer sync policy should not be described as guaranteeing durable segment creation until this is addressed.
+- First decide and document the required guarantees:
+  1. Which operating systems and filesystems are in scope?
+  2. Does a successful append under `SyncEachAppend` need to survive process termination only, kernel crash, or sudden power loss?
+  3. Must the creation of a new segment filename be durable before an append to that segment can be acknowledged?
+  4. What behavior is expected when directory syncing is unsupported or fails?
+- Inspect platform-specific directory-sync behavior and Go APIs for the supported targets. Do not assume that opening and syncing a directory works identically on every OS.
+- Write down the agreed contract and failure semantics in `docs/storage_disk.md` before implementing platform-specific code. If the platform support or durability requirement is not clear, ask the user for that decision rather than guessing.
+- After the contract is explicit, design the smallest platform-appropriate helper and tests. Keep platform-specific code isolated; preserve append ordering, sticky I/O failure behavior, and the existing file-sync semantics.
+- Update the architecture guide and diagrams in the same commit as any storage behavior change. Then run and verify the complete CI suite against the exact pushed commit.
+- Keep persistent indexing and public storage APIs deferred until a concrete lookup/seek requirement and contract are defined.
+
+### Handoff instructions for the next AI session
+1. Start by verifying `main` HEAD and the latest CI run independently.
+2. Treat `19048e3843f623bcb034860a647c2ac4b680a9c9` and CI run `44897481661` as the latest verified implementation checkpoint.
+3. Do not repeat the completed formatting-gate work unless a later change reintroduces formatting drift.
+4. Continue with the directory-durability contract decision above; do not implement speculative OS-specific syncing before the supported platforms and crash-durability semantics are defined.
