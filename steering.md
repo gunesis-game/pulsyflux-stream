@@ -87,38 +87,37 @@ Do not introduce a public storage API until the internal storage contract and du
 - If work is interrupted, record the exact stopping point, pending checks, uncommitted/unpushed state, and safest next action. Never describe uncommitted work as pushed or unverified work as tested.
 - Keep this file directive-oriented and concise. Do not duplicate README walkthroughs or retain resolved session narratives.
 
-## Current handoff — versioned six-fingerprint disk records (2026-11-21)
+## Current handoff — heterogeneous channels and private identity (2026-11-21)
 
 ### Repository and verified checkpoint
 - Repository: `gunesis-game/pulsyflux-stream`; work directly on `main`, no branches.
-- Current `main` HEAD and code SHA: `2136e6937b417a4b65abcf2b6a214aa9d3ccf79b` (`style: align record validation test fields`).
-- CI run #204 (`44913886156`) tested this exact SHA and **passed**. Linux and Windows jobs both completed non-mutating formatting verification, `go test -race -coverprofile=coverage.out ./...`, per-function coverage reporting, artifact upload, `go vet ./...`, and `go build ./...`.
-- Linux and Windows both reported 84.8% aggregate statement coverage. All reported per-function percentages matched; no cross-platform coverage discrepancy was visible. Coverage artifacts were uploaded for both platforms.
-- No local Go test execution is claimed. The CI run is the verification source.
-- The latest steering update is documentation-only and is not CI-tested.
+- Current `main` HEAD and code SHA: `1a498c57dc19493659dabc25400bbddf02bbf83f` (`style: remove trailing blank line from channel test`).
+- CI run #211 (`44914465680`) tested this exact SHA and **passed**. Linux and Windows both passed non-mutating formatting verification, `go test -race -coverprofile=coverage.out ./...`, per-function coverage reporting, artifact upload, `go vet ./...`, and `go build ./...`.
+- Both platforms reported 84.7% aggregate statement coverage. Per-function coverage matched across Linux and Windows; no cross-platform discrepancy was found. Both coverage artifacts were uploaded.
+- No local Go test execution is claimed; CI is the verification source.
+- `docs/storage_disk.md` still matches the version-2 six-fingerprint record implementation.
 
 ### Changes made
-- The private disk record now stores six independently validated fingerprints: Event base/effective, Stream base/effective, and Channel base/effective. The duplicate `Type` field and single `SchemaFingerprint` field are removed.
-- `diskWriter.Append` now receives a private `schemaFingerprints` value, plus channel/stream IDs, event-creation time, and already-redacted JSON payload.
-- Record format version is now 2. Version-1 records are rejected rather than silently interpreted as the new format; frame magic, length framing, CRC32 checksum, sequence, timestamp, IDs, and direct JSON payload remain.
-- Tests cover round-trip encoding, all six required fingerprints, old-version rejection, JSON size preflight, and writer/reader behavior.
-- Updated `docs/storage_disk.md` to describe the version-2 record fields, six-fingerprint append contract, and version-1 rejection. The document matches the implementation.
+- Confirmed the heterogeneous channel decision: one `EventChannel` can own many different typed streams. Keep `EventChannel` non-generic; `New[T]` and `Get[T]` remain generic functions. This avoids pretending one channel has one payload type and fits Go's lack of independently generic methods.
+- Made the channel UUID private (`id`). Removed public `ID` and `NewEventChannelWithID`; channel identity can no longer be inspected, supplied, or reconstructed by consumers.
+- The in-memory registry still keys streams by private channel UUID plus reflected event type. Duplicate registration of the same event type in one channel remains rejected; different event types remain independent.
+- Updated tests and README to cover/document heterogeneous registration and private identity.
 
-### Post-push verification state
-- Exact code commit checked: `2136e6937b417a4b65abcf2b6a214aa9d3ccf79b`; CI run #204: [44913886156](https://github.com/gunesis-game/pulsyflux-stream/actions/runs/44913886156).
-- All three workflow jobs completed successfully. Both platform jobs passed formatting, race-enabled tests, vet, and build.
-- Linux and Windows each reported 84.8% statement coverage. Every reported per-function percentage matched between platforms. The new `schemaFingerprints.valid` helper is 100%; `diskRecordJSONSize` is 91.7%; `encodeDiskRecord` is 80.0%; `Append` is 85.0%. No profile-level investigation was needed because shared per-function coverage matched.
+### Post-CI analysis
+- Exact-SHA CI run #211 completed successfully on both platforms. Formatting, race tests, coverage, vet, and build all passed.
+- Linux and Windows both reported 84.7% aggregate statement coverage. All per-function percentages matched. No profile-level comparison was needed because no per-function platform differences appeared.
+- A prior push failed only the formatting gate due to one trailing blank line in `stream_test.go`; it was removed and the final exact-SHA run passed. This is resolved, not a pending action.
 
-### Remaining confirmed gaps and risks
-- `EventChannel` remains non-generic and exposes its UUID as a public `ID`; `Stream.New` still accepts `*EventChannel`. This conflicts with the agreed generic channel API and internal-identity boundary.
-- Higher-layer Stream and Channel schema descriptors/dependency composition are not yet wired through runtime types. The disk writer now accepts six fingerprints, but current runtime composition does not yet supply all of them.
-- Private storage location/ownership and writer lifecycle per logical channel remain unresolved. Do not invent a path, global directory, or public configuration API. Resolve this before connecting recorder lifecycle to Publish.
-- `SyncEachAppend` remains unsupported on Linux and Windows until directory-entry durability can be documented and tested consistently.
+### Remaining confirmed gaps and unresolved design
+- Runtime schema identities are still only fully implemented for Event. Stream and Channel base/effective identities are not yet propagated into runtime objects, so the six disk fingerprints are not yet sourced end-to-end from the live Event → Stream → Channel composition.
+- Redaction policy is currently supplied per Event, not configured on a Stream. Before deriving Stream/Channel effective fingerprints, decide and document how varying event redaction policies within one typed stream affect the effective identities. Do not silently freeze the first policy or allow identity drift without a contract.
+- Private storage location/ownership and writer lifecycle per logical channel remain unresolved. Do not invent a path, global directory, or public configuration API. Resolve before connecting recorder lifecycle to Publish.
+- `SyncEachAppend` remains unsupported on Linux and Windows pending documented and tested directory-entry durability.
 
 ### Next task
-1. Implement generic `EventChannel[TStream]` registration and propagate base/effective dependency identities through Event, Stream, and Channel layers. Update `channel.go`, `store.go`, `stream.go`, `schema.go`, affected tests, and documentation together. Keep instance UUIDs private and fingerprints separate from runtime identity.
-2. Add tests for generic channel registration, duplicate typed stream rejection, base/effective dependency propagation, and schema mismatch behavior. Preserve current stream concurrency and delivery semantics.
-3. Separately resolve private storage location/ownership and per-channel writer lifecycle before integrating recording into Publish. Do not invent a path or public storage configuration API.
-4. After each code push, inspect the exact-SHA Linux/Windows CI run and compare aggregate plus per-function coverage. Do not trigger the manually controlled release workflow.
+1. Design the schema dependency contract for heterogeneous channels: Event base/effective identities, Stream base/effective identities derived from Event dependencies, and Channel base/effective identities derived deterministically from the set of registered typed streams. Explicitly define the effect of per-Event redaction policies on Stream/Channel effective identities.
+2. Implement the agreed identity composition in `event.go`, `stream.go`, `channel.go`, `store.go`, and `schema.go`; keep hashing/composition centralized in `schema.go`. Keep UUIDs private and separate from schema fingerprints.
+3. Add tests for two or more differently typed streams, deterministic channel identity independent of registration order, dependency changes, redaction-policy behavior, and schema mismatch. Ensure the six disk fingerprints can be populated from runtime identities without inventing storage ownership/lifecycle.
+4. Update README and relevant docs with any intentional API/contract changes. Verify exact-SHA Linux/Windows CI and compare aggregate plus per-function coverage. Do not trigger the manually controlled release workflow.
 
-Acceptance for the next schema/channel task: generic `EventChannel[TStream]` API is reflected consistently in source/tests/docs; channel UUID remains private; Event/Stream/Channel base/effective identities compose dependencies correctly; the six persisted fingerprints are derived from those runtime identities; and the exact code SHA passes Linux/Windows CI with a documented coverage comparison.
+Acceptance: heterogeneous typed registration remains intact; Event/Stream/Channel each have base/effective schema identities with deterministic dependency composition; policy changes follow the explicitly documented contract; channel instance UUID remains private; the six disk fingerprints are derivable from the runtime objects; and exact code SHA passes Linux/Windows CI with coverage comparison.
