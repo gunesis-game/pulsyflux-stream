@@ -23,10 +23,10 @@ func testDiskRecord(seq uint64) diskRecord {
 
 func TestDiskRecordSizePreflightMatchesJSONEncoding(t *testing.T) {
 	payloads := []json.RawMessage{
-		json.RawMessage(\`{ "html" : "<>&", "items" : [1, 2, 3] }\`),
-		json.RawMessage(\`"line\nseparator"\`),
-		json.RawMessage(\`"\u2028 and \u2029"\`),
-		json.RawMessage(\`null\`),
+		json.RawMessage(`{ "html" : "<>&", "items" : [1, 2, 3] }`),
+		json.RawMessage(`"line\nseparator"`),
+		json.RawMessage(`"\u2028 and \u2029"`),
+		json.RawMessage(`null`),
 	}
 	for _, payload := range payloads {
 		record := testDiskRecord(1)
@@ -57,12 +57,12 @@ func TestDiskRecordSizePreflightMatchesJSONEncoding(t *testing.T) {
 
 func TestDiskRecordSizePreflightRejectsOversizedAndInvalidPayloads(t *testing.T) {
 	record := testDiskRecord(1)
-	record.Payload = json.RawMessage(\`"\` + strings.Repeat("x", 1024) + \`"\`)
+	record.Payload = json.RawMessage(`"` + strings.Repeat("x", 1024) + `"`)
 	if _, err := diskRecordJSONSize(record, 512); err == nil || !strings.Contains(err.Error(), "size limit") {
 		t.Fatalf("oversized payload error=%v, want size limit", err)
 	}
 
-	record.Payload = json.RawMessage(\`{"unterminated":\`)
+	record.Payload = json.RawMessage(`{"unterminated":`)
 	if _, err := diskRecordJSONSize(record, maxRecordBytes); err == nil || !strings.Contains(err.Error(), "invalid JSON payload") {
 		t.Fatalf("invalid RawMessage error=%v", err)
 	}
