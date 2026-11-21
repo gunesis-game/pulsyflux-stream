@@ -12,6 +12,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -114,6 +116,7 @@ type diskWriter struct {
 	size int64
 	nextSequence uint64
 	closed bool
+	failed error
 }
 
 func openDiskWriter(dir string, opts diskWriterOptions) (*diskWriter, error) {
@@ -165,13 +168,47 @@ func openDiskWriter(dir string, opts diskWriterOptions) (*diskWriter, error) {
 
 func diskSegments(dir string) ([]string, error) {
 	entries, err := os.ReadDir(dir)
-	if err != nil { return nil, err }
-	var names []string
-	for _, e := range entries { if !e.IsDir() && filepath.Ext(e.Name()) == ".pfs" { names = append(names, filepath.Join(dir, e.Name())) } }
-	sort.Strings(names)
-	return names, nil
+	if err != nil {
+		return nil, err
+	}
+	type segment struct {
+		path string
+		num  uint64
+	}
+	segments := make([]segment, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".pfs" {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		num := segmentNum(path)
+		if num == 0 || fmt.Sprintf("segment-%06d.pfs", num) != entry.Name() {
+			return nil, fmt.Errorf("stream: invalid segment filename %q", entry.Name())
+		}
+		segments = append(segments, segment{path: path, num: num})
+	}
+	sort.Slice(segments, func(i, j int) bool { return segments[i].num < segments[j].num })
+	paths := make([]string, len(segments))
+	for i, segment := range segments {
+		if i > 0 && segments[i-1].num == segment.num {
+			return nil, fmt.Errorf("stream: duplicate segment number %d", segment.num)
+		}
+		paths[i] = segment.path
+	}
+	return paths, nil
 }
-func segmentNum(path string) uint64 { var n uint64; _, _ = fmt.Sscanf(filepath.Base(path), "segment-%d.pfs", &n); return n }
+
+func segmentNum(path string) uint64 {
+	base := filepath.Base(path)
+	if !strings.HasPrefix(base, "segment-") || !strings.HasSuffix(base, ".pfs") {
+		return 0
+	}
+	n, err := strconv.ParseUint(strings.TrimSuffix(strings.TrimPrefix(base, "segment-"), ".pfs"), 10, 64)
+	if err != nil {
+		return 0
+	}
+	return n
+}
 func (w *diskWriter) newSegment() error {
 	path := filepath.Join(w.dir, fmt.Sprintf("segment-%06d.pfs", w.segment))
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o640)
@@ -184,98 +221,202 @@ func (w *diskWriter) Append(channelID, streamID uuid.UUID, schema, typeName stri
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.closed { return 0, uuid.Nil, ErrClosed }
+	if w.failed != nil { return 0, uuid.Nil, w.failed }
 	r := diskRecord{Version: recordVersion, EventID: uuid.New(), StreamID: streamID, ChannelID: channelID, Sequence: w.nextSequence+1, Timestamp: at.UnixNano(), SchemaFingerprint: schema, Type: typeName, Payload: append(json.RawMessage(nil), payload...)}
 	frame, err := encodeDiskRecord(r)
 	if err != nil { return 0, uuid.Nil, err }
 	if w.size > 0 && w.size+int64(len(frame)) > w.maxBytes {
-		if err := w.rotate(); err != nil { return 0, uuid.Nil, err }
+		if err := w.rotate(); err != nil { return 0, uuid.Nil, w.failLocked(err) }
 	}
-	if _, err := w.buf.Write(frame); err != nil { return 0, uuid.Nil, err }
+	if _, err := w.buf.Write(frame); err != nil { return 0, uuid.Nil, w.failLocked(err) }
 	w.size += int64(len(frame))
 	w.nextSequence = r.Sequence
-	if w.syncEachAppend { if err := w.syncLocked(); err != nil { return 0, uuid.Nil, err } }
+	if w.syncEachAppend { if err := w.syncLocked(); err != nil { return 0, uuid.Nil, w.failLocked(err) } }
 	return r.Sequence, r.EventID, nil
 }
 func (w *diskWriter) rotate() error {
 	if err := w.flushLocked(); err != nil { return err }
-	if err := w.file.Close(); err != nil { return err }
+	if err := w.file.Close(); err != nil {
+		w.file, w.buf = nil, nil
+		return err
+	}
+	w.file, w.buf = nil, nil
 	w.segment++
 	return w.newSegment()
 }
 func (w *diskWriter) Flush() error {
 	w.mu.Lock(); defer w.mu.Unlock()
 	if w.closed { return ErrClosed }
-	return w.flushLocked()
+	if w.failed != nil { return w.failed }
+	if err := w.flushLocked(); err != nil { return w.failLocked(err) }
+	return nil
 }
-func (w *diskWriter) flushLocked() error { if err := w.buf.Flush(); err != nil { return err }; return nil }
+func (w *diskWriter) flushLocked() error { return w.buf.Flush() }
 func (w *diskWriter) Sync() error {
 	w.mu.Lock(); defer w.mu.Unlock()
 	if w.closed { return ErrClosed }
-	return w.syncLocked()
+	if w.failed != nil { return w.failed }
+	if err := w.syncLocked(); err != nil { return w.failLocked(err) }
+	return nil
 }
 func (w *diskWriter) syncLocked() error {
 	if err := w.flushLocked(); err != nil { return err }
 	return w.file.Sync()
 }
+func (w *diskWriter) failLocked(err error) error {
+	if w.failed == nil {
+		w.failed = err
+	}
+	return w.failed
+}
 func (w *diskWriter) Close() error {
 	w.mu.Lock(); defer w.mu.Unlock()
 	if w.closed { return nil }
-	flushErr := w.flushLocked()
-	closeErr := w.file.Close()
+	var flushErr error
+	if w.failed == nil && w.buf != nil {
+		flushErr = w.flushLocked()
+	}
+	var closeErr error
+	if w.file != nil {
+		closeErr = w.file.Close()
+	}
 	w.closed = true
-	return errors.Join(flushErr, closeErr)
+	return errors.Join(w.failed, flushErr, closeErr)
 }
 
 type diskReader struct {
-	paths []string
+	paths        []string
 	segmentIndex int
-	records []diskRecord
-	recordIndex int
+	file         *os.File
+	segmentPath  string
+	offset       int64
 	lastSequence uint64
-	closed bool
+	terminalErr  error
+	closed       bool
 }
 
-// openDiskReader opens the ordered segment set for sequential reading. It loads
-// one segment at a time and rejects incomplete tails or corrupt frames.
+// openDiskReader validates the segment set before opening it for sequential
+// reading. Segment files are opened lazily so memory use is independent of the
+// total size of a segment or the complete stream.
 func openDiskReader(dir string) (*diskReader, error) {
 	paths, err := diskSegments(dir)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	return &diskReader{paths: paths}, nil
 }
 
-// Next returns the next record in persisted sequence order, or io.EOF when
-// every segment has been read.
-func (r *diskReader) Next() (diskRecord, error) {
-	if r.closed { return diskRecord{}, ErrClosed }
-	for r.recordIndex >= len(r.records) {
-		if r.segmentIndex >= len(r.paths) { return diskRecord{}, io.EOF }
-		path := r.paths[r.segmentIndex]
-		r.segmentIndex++
-		f, err := os.Open(path)
-		if err != nil { return diskRecord{}, err }
-		records, _, tail, scanErr := scanDiskRecords(f)
-		closeErr := f.Close()
-		if scanErr != nil { return diskRecord{}, scanErr }
-		if closeErr != nil { return diskRecord{}, closeErr }
-		if tail { return diskRecord{}, fmt.Errorf("%w: incomplete tail in %q", errRecordCorrupt, filepath.Base(path)) }
-		if len(records) > 0 && records[0].Sequence <= r.lastSequence {
-			return diskRecord{}, fmt.Errorf("%w: sequence order across segments", errRecordCorrupt)
+// readDiskRecord reads exactly one frame. A short final header or body is
+// reported as an incomplete tail; malformed complete frames are corruption.
+func readDiskRecord(rd io.Reader, offset int64) (diskRecord, int64, bool, error) {
+	var record diskRecord
+	header := make([]byte, recordHeaderBytes)
+	n, err := io.ReadFull(rd, header)
+	if err == io.EOF && n == 0 {
+		return record, 0, false, io.EOF
+	}
+	if err == io.EOF || err == io.ErrUnexpectedEOF {
+		return record, 0, true, nil
+	}
+	if err != nil {
+		return record, 0, false, err
+	}
+	if !bytes.Equal(header[:4], recordMagic[:]) {
+		return record, 0, false, fmt.Errorf("%w at byte %d: magic", errRecordCorrupt, offset)
+	}
+	size := binary.BigEndian.Uint32(header[4:8])
+	if size > maxRecordBytes {
+		return record, 0, false, fmt.Errorf("%w at byte %d: oversized frame", errRecordCorrupt, offset)
+	}
+	rest := make([]byte, int(size)+recordChecksumBytes)
+	if _, err := io.ReadFull(rd, rest); err != nil {
+		if err == io.EOF || err == io.ErrUnexpectedEOF {
+			return record, 0, true, nil
 		}
-		r.records, r.recordIndex = records, 0
+		return record, 0, false, err
 	}
-	record := r.records[r.recordIndex]
-	r.recordIndex++
-	if record.Sequence <= r.lastSequence {
-		return diskRecord{}, fmt.Errorf("%w: non-increasing sequence", errRecordCorrupt)
+	frame := append(header, rest...)
+	record, err = decodeDiskRecord(frame)
+	if err != nil {
+		return diskRecord{}, 0, false, fmt.Errorf("scan byte %d: %w", offset, err)
 	}
-	r.lastSequence = record.Sequence
-	return record, nil
+	return record, int64(len(frame)), false, nil
 }
 
-// Close releases reader state. The reader owns no persistent open file handle.
+// Next returns the next record in persisted sequence order, or io.EOF when
+// every segment has been read. Only one frame is decoded and retained per call.
+func (r *diskReader) Next() (diskRecord, error) {
+	if r.closed {
+		return diskRecord{}, ErrClosed
+	}
+	if r.terminalErr != nil {
+		return diskRecord{}, r.terminalErr
+	}
+	for {
+		if r.file == nil {
+			if r.segmentIndex >= len(r.paths) {
+				return diskRecord{}, io.EOF
+			}
+			path := r.paths[r.segmentIndex]
+			r.segmentIndex++
+			file, err := os.Open(path)
+			if err != nil {
+				r.terminalErr = err
+				return diskRecord{}, err
+			}
+			r.file, r.segmentPath, r.offset = file, path, 0
+		}
+
+		record, frameBytes, incomplete, err := readDiskRecord(r.file, r.offset)
+		if err == io.EOF {
+			closeErr := r.file.Close()
+			r.file, r.segmentPath = nil, ""
+			if closeErr != nil {
+				r.terminalErr = closeErr
+				return diskRecord{}, closeErr
+			}
+			continue
+		}
+		if err != nil {
+			r.terminalErr = r.failSegment(err)
+			return diskRecord{}, r.terminalErr
+		}
+		if incomplete {
+			err := fmt.Errorf("%w: incomplete tail in %q", errRecordCorrupt, filepath.Base(r.segmentPath))
+			r.terminalErr = r.failSegment(err)
+			return diskRecord{}, r.terminalErr
+		}
+		if record.Sequence <= r.lastSequence {
+			err := fmt.Errorf("%w: non-increasing sequence across segments", errRecordCorrupt)
+			r.terminalErr = r.failSegment(err)
+			return diskRecord{}, r.terminalErr
+		}
+		r.offset += frameBytes
+		r.lastSequence = record.Sequence
+		return record, nil
+	}
+}
+
+func (r *diskReader) failSegment(err error) error {
+	if r.file != nil {
+		err = errors.Join(err, r.file.Close())
+		r.file = nil
+	}
+	r.segmentPath = ""
+	return err
+}
+
+// Close releases the active segment handle and reader state.
 func (r *diskReader) Close() error {
-	if r.closed { return nil }
+	if r.closed {
+		return nil
+	}
 	r.closed = true
-	r.records = nil
+	r.paths = nil
+	if r.file != nil {
+		err := r.file.Close()
+		r.file = nil
+		return err
+	}
 	return nil
 }
