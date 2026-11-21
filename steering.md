@@ -303,6 +303,7 @@ If implementation is mid-flight, record the exact stopping point, uncommitted or
 ### Next task — define the disk segment directory-durability contract before implementation
 - Known limitation: syncing a segment file does not necessarily make a newly created directory entry durable across sudden power loss. The current writer sync policy should not be described as guaranteeing durable segment creation until this is addressed.
 - First decide and document the required guarantees:
+- Current repository evidence: `README.md` declares Go 1.27 or newer but does not declare supported operating systems; the CI workflow currently runs on `ubuntu-latest` only. This does not establish that Linux is the only supported target. The supported OS/filesystem matrix remains an explicit open decision.
   1. Which operating systems and filesystems are in scope?
   2. Does a successful append under `SyncEachAppend` need to survive process termination only, kernel crash, or sudden power loss?
   3. Must the creation of a new segment filename be durable before an append to that segment can be acknowledged?
