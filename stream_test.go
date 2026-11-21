@@ -10,7 +10,20 @@ import (
 	"github.com/google/uuid"
 )
 
-func newTestEvent[T any](t *testing.T, name string, data T) Event[T] {\n\tt.Helper()\n\tevent, err := NewEvent[T](NewPolicy())\n\tif err != nil {\n\t\tt.Fatal(err)\n\t}\n\tevent.Name = name\n\tif err := event.SetData(data); err != nil {\n\t\tt.Fatal(err)\n\t}\n\treturn event\n}\n\nfunc newTestStream[T any](t *testing.T, bufferSize int) *Stream[T] {
+func newTestEvent[T any](t *testing.T, name string, data T) Event[T] {
+	t.Helper()
+	event, err := NewEvent[T](NewPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	event.Name = name
+	if err := event.SetData(data); err != nil {
+		t.Fatal(err)
+	}
+	return event
+}
+
+func newTestStream[T any](t *testing.T, bufferSize int) *Stream[T] {
 	t.Helper()
 	channel := NewEventChannel()
 	s, err := New[T](channel, bufferSize)
@@ -224,7 +237,7 @@ func TestPublishIsAtomicWhenSubscriberIsFull(t *testing.T) {
 	default:
 	}
 	if got := <-slow.Events(); got.Data() != 1 {
-		t.Fatalf("slow subscriber got unexpected event: %d", got.Data)
+		t.Fatalf("slow subscriber got unexpected event: %d", got.Data())
 	}
 }
 
