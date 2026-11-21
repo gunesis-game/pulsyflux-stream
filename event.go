@@ -23,8 +23,8 @@ func NewPolicy(exclude ...string) Policy {
 // Event is a typed event with metadata and a payload governed by a redaction
 // policy. Data is intentionally private so assignments go through SetData.
 type Event[T any] struct {
-	Name string    `json:"name`
-	Time time.Time `json:"time`
+	Name string    `json:"name"`
+	Time time.Time `json:"time"`
 
 	data   T
 	policy Policy
