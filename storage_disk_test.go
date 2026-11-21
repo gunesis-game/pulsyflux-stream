@@ -54,7 +54,7 @@ func TestDiskRecordSizePreflightMatchesJSONEncoding(t *testing.T) {
 			t.Fatal(err)
 		}
 		if !bytes.Equal(frame[recordHeaderBytes:len(frame)-recordChecksumBytes], want) {
-			t.Fatalf("encoded version-1 JSON bytes changed for payload %q", payload)
+			t.Fatalf("encoded JSON bytes changed for payload %q", payload)
 		}
 	}
 }
@@ -106,6 +106,35 @@ func TestDiskRecordRoundTripChecksum(t *testing.T) {
 	frame[len(frame)-1] ^= 0xff
 	if _, err := decodeDiskRecord(frame); !errors.Is(err, errRecordCorrupt) {
 		t.Fatalf("checksum not detected: %v", err)
+	}
+}
+
+func TestDiskRecordRejectsMissingSchemaFingerprintsAndOldVersion(t *testing.T) {
+	mutations := []struct {
+		name string
+		mutate func(*diskRecord)
+	}{
+		{"event base", func(r *diskRecord) { r.EventBaseFingerprint = "" }},
+		{"event effective", func(r *diskRecord) { r.EventEffectiveFingerprint = "" }},
+		{"stream base", func(r *diskRecord) { r.StreamBaseFingerprint = "" }},
+		{"stream effective", func(r *diskRecord) { r.StreamEffectiveFingerprint = "" }},
+		{"channel base", func(r *diskRecord) { r.ChannelBaseFingerprint = "" }},
+		{"channel effective", func(r *diskRecord) { r.ChannelEffectiveFingerprint = "" }},
+	}
+	for _, mutation := range mutations {
+		t.Run(mutation.name, func(t *testing.T) {
+			record := testDiskRecord(1)
+			mutation.mutate(&record)
+			if _, err := encodeDiskRecord(record); !errors.Is(err, errRecordCorrupt) {
+				t.Fatalf("missing fingerprint accepted: %v", err)
+			}
+		})
+	}
+
+	record := testDiskRecord(1)
+	record.Version = 1
+	if _, err := encodeDiskRecord(record); err == nil || !strings.Contains(err.Error(), "unsupported record version") {
+		t.Fatalf("version-1 record accepted: %v", err)
 	}
 }
 
