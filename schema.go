@@ -21,7 +21,15 @@ const schemaFingerprintVersion = "pulsyflux-schema-v1"
   Time time.Time `json:"time"`
  }
 
- // encodeEventSchema owns schema-aware event serialization and returns the
+ // eventTypeName derives the stable in-process type label used by the event envelope.
+func eventTypeName[T any]() string {
+	t := reflect.TypeOf((*T)(nil)).Elem()
+	for t.Kind() == reflect.Pointer { t = t.Elem() }
+	if t.Name() != "" { return t.Name() }
+	return t.String()
+}
+
+// encodeEventSchema owns schema-aware event serialization and returns the
  // schema fingerprint and type identity that storage persists as metadata.
  func encodeEventSchema[T any](event *Event[T]) ([]byte, string, string, error) {
   if !event.dataSet { return nil, "", "", ErrUnsetEventData }
