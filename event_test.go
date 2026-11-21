@@ -50,7 +50,7 @@ func TestEventSerializationRedactsNestedSliceAndDoesNotMutateData(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	event.Name = "users.created"
+	
 	value := payload{Users: []user{{Name: "Ada", Password: "secret"}}}
 	if err := event.SetData(value); err != nil {
 		t.Fatal(err)
@@ -68,14 +68,14 @@ func TestEventSerializationRedactsNestedSliceAndDoesNotMutateData(t *testing.T) 
 	}
 
 	var envelope struct {
-		Name string `json:"name"`
+		Type string `json:"type"`
 		Data json.RawMessage `json:"data"`
 	}
 	if err := json.Unmarshal(raw, &envelope); err != nil {
 		t.Fatal(err)
 	}
-	if envelope.Name != "users.created" {
-		t.Fatalf("name = %q", envelope.Name)
+	if envelope.Type != "payload" {
+		t.Fatalf("type = %q, want payload", envelope.Type)
 	}
 }
 
@@ -89,7 +89,7 @@ func TestEventDeserializeRoundTripRedactedData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	event.Name = "created"
+	
 	if err := event.SetData(payload{ID: "u1", Secret: "hidden"}); err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ func TestEventDeserializeRoundTripRedactedData(t *testing.T) {
 	if got.ID != "u1" || got.Secret != "" {
 		t.Fatalf("unexpected restored payload: %#v", got)
 	}
-	if restored.Name != event.Name || !restored.Time.Equal(event.Time) {
+	if restored.TypeName() != event.TypeName() || !restored.Time.Equal(event.Time) {
 		t.Fatalf("metadata did not round-trip: restored=%#v original=%#v", restored, event)
 	}
 
