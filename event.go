@@ -8,9 +8,8 @@ import (
 	"time"
 )
 
-// RedactionPolicy defines JSON field paths excluded by schema-aware serialization.
-// Paths use JSON field names. The policy is shared by Event, Stream, and Channel
-// schema adapters; each adapter decides privately how the policy is applied.
+// RedactionPolicy defines JSON field paths excluded from persisted event payloads.
+// Paths use JSON field names. Event owns validation and redaction.
 type RedactionPolicy struct {
 	exclude []string
 }
@@ -28,7 +27,7 @@ func validateEventData[T any](data T) error {
 }
 
 // normalizeEventRedactionPaths validates and copies JSON field paths for a
-// particular data shape. It is independent of Event, Stream, and Channel.
+// particular data shape. It validates paths against the event payload type.
 func normalizeEventRedactionPaths(t reflect.Type, paths []string) ([]string, error) {
 	normalized := append([]string(nil), paths...)
 	seen := make(map[string]struct{}, len(normalized))
@@ -104,18 +103,18 @@ func eventJSONFieldNameWithIgnore(field reflect.StructField) (string, bool) {
 }
 
 // redactEventJSON applies JSON field exclusions to a serialized data copy.
-// It never mutates the caller's value and can be used by any schema adapter.
+// It never mutates the caller's value and is used by Event when preparing a redacted payload.
 func redactEventJSON(raw []byte, paths []string) ([]byte, error) {
 	var value any
 	if err := json.Unmarshal(raw, &value); err != nil {
-		return nil, fmt.Errorf("decode schema data for redaction: %w", err)
+		return nil, fmt.Errorf("decode event payload for redaction: %w", err)
 	}
 	for _, path := range paths {
 		redactEventPath(value, strings.Split(path, "."))
 	}
 	redacted, err := json.Marshal(value)
 	if err != nil {
-		return nil, fmt.Errorf("marshal redacted schema data: %w", err)
+		return nil, fmt.Errorf("marshal redacted event payload: %w", err)
 	}
 	return redacted, nil
 }
@@ -183,7 +182,7 @@ func (e *Event[T]) Data() T {
 	return e.data
 }
 
-// validate checks the event's configured exclusions using generic schema rules.
+// validate checks the event's configured exclusions using event payload rules.
 func (e *Event[T]) validate() error {
 	_, err := normalizeEventRedactionPaths(reflect.TypeOf((*T)(nil)).Elem(), e.redactionPolicy.exclude)
 	return err
