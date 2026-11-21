@@ -117,6 +117,7 @@ type diskWriter struct {
 	nextSequence uint64
 	closed bool
 	failed error
+	closeErr error
 }
 
 func openDiskWriter(dir string, opts diskWriterOptions) (*diskWriter, error) {
@@ -271,18 +272,23 @@ func (w *diskWriter) failLocked(err error) error {
 	return w.failed
 }
 func (w *diskWriter) Close() error {
-	w.mu.Lock(); defer w.mu.Unlock()
-	if w.closed { return nil }
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.closed {
+		return w.closeErr
+	}
+
 	var flushErr error
 	if w.failed == nil && w.buf != nil {
 		flushErr = w.flushLocked()
 	}
-	var closeErr error
+	var fileCloseErr error
 	if w.file != nil {
-		closeErr = w.file.Close()
+		fileCloseErr = w.file.Close()
 	}
 	w.closed = true
-	return errors.Join(w.failed, flushErr, closeErr)
+	w.closeErr = errors.Join(w.failed, flushErr, fileCloseErr)
+	return w.closeErr
 }
 
 type diskReader struct {
