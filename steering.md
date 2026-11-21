@@ -108,7 +108,6 @@ Do not introduce a public storage API until the internal storage contract and du
 - Exact code commit checked: `2136e6937b417a4b65abcf2b6a214aa9d3ccf79b`; CI run #204: [44913886156](https://github.com/gunesis-game/pulsyflux-stream/actions/runs/44913886156).
 - All three workflow jobs completed successfully. Both platform jobs passed formatting, race-enabled tests, vet, and build.
 - Linux and Windows each reported 84.8% statement coverage. Every reported per-function percentage matched between platforms. The new `schemaFingerprints.valid` helper is 100%; `diskRecordJSONSize` is 91.7%; `encodeDiskRecord` is 80.0%; `Append` is 85.0%. No profile-level investigation was needed because shared per-function coverage matched.
-- Earlier CI attempts during this change were cancelled by subsequent pushes or failed only the formatting gate. The final exact-SHA run above passed all required checks; no unresolved failure remains.
 
 ### Remaining confirmed gaps and risks
 - `EventChannel` remains non-generic and exposes its UUID as a public `ID`; `Stream.New` still accepts `*EventChannel`. This conflicts with the agreed generic channel API and internal-identity boundary.
