@@ -189,7 +189,7 @@ func (e *Event[T]) validate() error {
 }
 
 // encodeEventPayload serializes typed event data and applies redaction to a JSON copy.
- // The returned bytes are the payload itself, without persistence metadata.
+// The returned bytes are the payload itself, without persistence metadata.
 func encodeEventPayload[T any](data T, policy RedactionPolicy) ([]byte, error) {
 	paths, err := normalizeEventRedactionPaths(reflect.TypeOf((*T)(nil)).Elem(), policy.exclude)
 	if err != nil {
