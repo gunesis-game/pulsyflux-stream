@@ -26,17 +26,19 @@ type Event[T any] struct {
 
 	data            T
 	dataSet         bool
-	redactionPolicy schemaRedactionPolicy
+	redactionPolicy RedactionPolicy
 }
 
 // NewEvent constructs an event and validates its redactionPolicy against T.
 func NewEvent[T any](redactionPolicy RedactionPolicy) (Event[T], error) {
-	redactionPolicy.exclude = append([]string(nil), redactionPolicy.exclude...)
-	schemaPolicy, err := newSchemaRedactionPolicy(reflect.TypeOf((*T)(nil)).Elem(), redactionPolicy.exclude)
+	normalized, err := normalizeSchemaRedactionPaths(reflect.TypeOf((*T)(nil)).Elem(), redactionPolicy.exclude)
 	if err != nil {
 		return Event[T]{}, fmt.Errorf("invalid event redaction policy: %w", err)
 	}
-	event := Event[T]{time: time.Now(), redactionPolicy: schemaPolicy}
+	event := Event[T]{
+		time:            time.Now(),
+		redactionPolicy: RedactionPolicy{exclude: normalized},
+	}
 	return event, nil
 }
 
@@ -60,6 +62,6 @@ func (e *Event[T]) Data() T {
 
 // validate checks the event's configured exclusions using generic schema rules.
 func (e *Event[T]) validate() error {
-	_, err := newSchemaRedactionPolicy(reflect.TypeOf((*T)(nil)).Elem(), e.redactionPolicy.exclude)
+	_, err := normalizeSchemaRedactionPaths(reflect.TypeOf((*T)(nil)).Elem(), e.redactionPolicy.exclude)
 	return err
 }
