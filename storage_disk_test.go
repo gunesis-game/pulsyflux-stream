@@ -1,6 +1,7 @@
 package stream
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"io"
@@ -37,6 +38,39 @@ func TestScanIncompleteTailAndRejectCorruption(t *testing.T) {
 	if err != nil || len(records) != 1 || offset != int64(len(frame)) || !tail { t.Fatalf("scan: count=%d offset=%d tail=%v err=%v", len(records), offset, tail, err) }
 	bad := append([]byte(nil), frame...); bad[0] = 'X'
 	if _, _, _, err := scanDiskRecords(bytes.NewReader(bad)); !errors.Is(err, errRecordCorrupt) { t.Fatalf("corruption accepted: %v", err) }
+}
+
+type failingDiskOutput struct {
+	err error
+}
+
+func (w failingDiskOutput) Write([]byte) (int, error) {
+	return 0, w.err
+}
+
+func TestDiskWriterAppendFailureIsSticky(t *testing.T) {
+	dir := t.TempDir()
+	writer, err := openDiskWriter(dir, diskWriterOptions{MaxSegmentBytes: 4096})
+	if err != nil {
+		t.Fatal(err)
+	}
+	injected := errors.New("injected disk write failure")
+	writer.buf = bufio.NewWriter(failingDiskOutput{err: injected})
+
+	sequence, _, firstErr := writer.Append(uuid.New(), uuid.New(), "schema", "event", time.Now(), []byte(`{"v":1}`))
+	if sequence != 0 || !errors.Is(firstErr, injected) {
+		t.Fatalf("first append: sequence=%d err=%v", sequence, firstErr)
+	}
+	sequence, _, secondErr := writer.Append(uuid.New(), uuid.New(), "schema", "event", time.Now(), []byte(`{"v":2}`))
+	if sequence != 0 || secondErr != firstErr {
+		t.Fatalf("second append did not return sticky failure: sequence=%d first=%v second=%v", sequence, firstErr, secondErr)
+	}
+	if writer.nextSequence != 0 {
+		t.Fatalf("failed append advanced sequence to %d", writer.nextSequence)
+	}
+	if err := writer.Close(); !errors.Is(err, injected) {
+		t.Fatalf("close did not preserve write failure: %v", err)
+	}
 }
 
 func TestDiskWriterSequenceTailRecoveryAndRollover(t *testing.T) {
