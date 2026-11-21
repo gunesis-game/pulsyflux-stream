@@ -62,3 +62,37 @@ Do not introduce a public storage API until the internal storage contract and du
 - Keep README factual and consumer-focused. Keep this file directive-oriented; avoid duplicating the README walkthrough or API examples.
 - Before reporting completion, run gofmt validation, go test -race -cover ./..., go vet ./..., and go build ./.... If execution is unavailable, report verification as unconfirmed.
 - CI should print offending filenames when formatting fails; do not hide gofmt output.
+
+
+## Session handoff — storage design and schema fingerprints (2026-11-21)
+
+### Decisions agreed with the user
+- Public API/type hierarchy remains `Channel[TStream]`, `Stream[TEvent]`, and `Event[TData]`. These are the existing abstractions; do not invent parallel public models.
+- Instance UUIDs for event, stream, and channel are internal package/infrastructure details. Consumers should not depend on or persist these IDs themselves.
+- Keep instance identity distinct from structural schema identity. Schema fingerprints are deterministic and represent definitions; instance UUIDs identify concrete runtime instances.
+- Schema fingerprints should be derived from canonical type structure, not SQL table schemas. The SQL analogy was illustrative only.
+- Storage design should focus on I/O/disk operation taxonomy and lifecycle: event capture, encode, append, flush/sync, read/scan/load, lookup, replay, and maintenance/recovery.
+- Initial storage direction: append-only segmented files, explicit versioned framing/checksum, durability policy, sequence-based ordering, minimal/rebuildable indexes, and recovery-safe tail handling. Avoid SQL/distributed infrastructure until justified.
+- Replay should deliver stored events via existing stream/channel abstractions and avoid being recorded again by the same recorder by default.
+
+### Implementation progress
+- On `main`, added private structural fingerprint groundwork in `schema.go` and focused tests in `schema_test.go`.
+- Updated this steering file to direct future storage work and preserve public API encapsulation.
+- Fingerprint tests are intended to cover determinism, structural/tag changes, field-order normalization, layer distinction, and recursive types.
+- Fingerprints are currently structural hints: custom JSON marshal/unmarshal behavior and external codec identity are not represented. They do not imply compatibility or migration support.
+- Previous session reported CI checks passing (gofmt, race-enabled tests/coverage, vet, build); in the next session, verify the actual latest main commit and CI state before relying on that report.
+
+### Next session: continue implementation on main
+1. Re-fetch repository state and `steering.md`; verify current `main`, recent commits, and CI.
+2. Inspect existing `Event[TData]`, `Stream[TEvent]`, `Channel[TStream]`, redaction/serialization, and repository file structure. Avoid assuming the earlier proposed types or disk layout are final.
+3. Design the physical on-disk record format before coding: canonical framing, format version, schema fingerprint, internal event/stream/channel identities, sequence, timestamp, codec/type metadata, payload bytes, and checksum. Decide which fields are actually required and document tradeoffs.
+4. Define segment lifecycle and durability semantics: active segment, rollover trigger, buffering, Flush versus Sync, incomplete-tail recovery, and middle-of-file corruption policy.
+5. Implement the smallest vertical slice: internal writer appending versioned records to an append-only segment, with tests for round-trip encoding, corruption detection, partial-tail recovery, and ordering. Keep the public API unchanged.
+6. Run required checks locally if possible: gofmt validation, `go test -race -cover ./...`, `go vet ./...`, and `go build ./...`; then verify CI.
+
+### Guardrails for the next session
+- Start from actual repository code; preserve existing type definitions and behavior.
+- No exported UUID/schema fingerprint accessors and no consumer-facing persistence IDs.
+- Do not start with a database or full indexing engine; establish the record/segment contract first.
+- Do not silently drop middle-of-file corruption. Incomplete trailing writes may be recoverable at a valid record boundary; report corruption.
+- Treat this handoff as a continuation checkpoint, not permission to implement beyond the next agreed design step without validating assumptions.
