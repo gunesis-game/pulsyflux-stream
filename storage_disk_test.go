@@ -2,7 +2,8 @@ package stream
 
 import (
 	"bytes"
-	"encoding/json"\n\t"io"
+	"encoding/json"
+	"io""
 	"errors"
 	"os"
 	"path/filepath"
