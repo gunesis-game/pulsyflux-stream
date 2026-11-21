@@ -171,8 +171,15 @@ func TestDiskReaderRejectsIncompleteTailAndCompleteCorruption(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer r.Close()
-			if _, err := r.Next(); !errors.Is(err, errRecordCorrupt) {
-				t.Fatalf("invalid segment accepted: %v", err)
+			_, firstErr := r.Next()
+			if name == "incomplete" {
+				if firstErr != nil {
+					t.Fatalf("valid record before incomplete tail: %v", firstErr)
+				}
+				_, firstErr = r.Next()
+			}
+			if !errors.Is(firstErr, errRecordCorrupt) {
+				t.Fatalf("invalid segment accepted: %v", firstErr)
 			}
 		})
 	}
