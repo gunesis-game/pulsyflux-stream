@@ -147,7 +147,6 @@ Do not introduce a public storage API until the internal storage contract and du
 - Do not edit Markdown files except when explicitly asked. This handoff was explicitly requested; ordinary implementation commits should avoid Markdown-only edits.
 - Markdown-only changes must not trigger CI. Do not claim a CI run occurred for this documentation-only update.
 - Do not claim local Go tests were run unless a local checkout and execution actually occurred. GitHub Actions is the verified source for the latest test/build results.
-
 ## Mandatory iteration, analysis, and session handoff maintenance
 
 This section is a required operating procedure for every AI implementation session. The purpose is to make the repository, especially this file, the durable source of truth so work can be continued in a fresh AI session without relying on chat history.
@@ -297,8 +296,7 @@ If implementation is mid-flight, record the exact stopping point, uncommitted or
 - The formatting check now validates the committed tree rather than repairing it in the runner. This closes the false-green formatting-gate gap.
 - CI verifies the resulting source using the repository's configured Go 1.27.x toolchain. A local Go 1.23.2 `gofmt` binary was used to prepare the formatting, and the CI formatting check confirms the final committed files are accepted by the configured toolchain.
 - No local Go tests, vet, or build were claimed. GitHub Actions is the verification source.
-- Reviewed `docs/storage_disk.md`; it remains consistent because this iteration was formatting-only. No architecture-document update was needed.
-- No new functional or test-coverage gap was identified by this formatting-only iteration. The CI coverage result remains 81.9%; this is a measurement, not by itself evidence that every edge case is covered.
+- Reviewed `docs/storage_disk.md`; it remains consistent because this iteration was formatting-only. No architecture-document update was needed.- No new functional or test-coverage gap was identified by this formatting-only iteration. The CI coverage result remains 81.9%; this is a measurement, not by itself evidence that every edge case is covered.
 
 ### Next task — define the disk segment directory-durability contract before implementation
 - Known limitation: syncing a segment file does not necessarily make a newly created directory entry durable across sudden power loss. The current writer sync policy should not be described as guaranteeing durable segment creation until this is addressed.
@@ -439,3 +437,37 @@ This section supersedes the earlier pending-choice handoff above. The user selec
 3. Observe normal future overlapping pushes to confirm that the newest run cancels superseded work. Do not create branches or run an artificial concurrency test without a reason.
 4. Preserve the global four-run CI retention policy and keep Release workflow history outside its scope.
 5. For any future workflow code change, verify the cleanup job, both OS matrix jobs, exact HEAD SHA, and complete logs; then append a fresh Markdown-only handoff update.
+
+
+## Session handoff — per-OS coverage reporting and Windows shell correction (2026-11-21)
+
+### Repository and workflow commits
+- Repository: `gunesis-game/pulsyflux-stream`; continue directly on `main`.
+- Coverage-report workflow commit: `7a071f12bf245cff0c46bb73fa7ed526093f766d` (`ci: publish per-file coverage reports for each OS`).
+- Follow-up shell correction commit: `b54bb44bb498a644acfc0f051ce5da21026e4e96` (`ci: run coverage tests with bash on Windows`).
+- The workflow change is limited to `.github/workflows/ci.yml`; storage code and tests were not changed.
+
+### What the workflow now does
+- Generates `coverage.out` using `go test -race -coverprofile=coverage.out ./...`.
+- Prints per-function coverage with `go tool cover -func`, adds the report to the Actions job summary, and uploads the profile and text report as per-OS artifacts retained for seven days.
+- The test command, vet, and build steps now explicitly use Bash on both runners. This avoids Windows PowerShell's native argument parsing issue with the coverage-profile command.
+- Preserve the existing Linux+Windows matrix, formatting gate, race tests, vet/build, main-only push/manual triggers, global `ci-main` concurrency, and four-run CI retention policy.
+
+### First verification and root cause
+- CI run [44899333922](https://github.com/gunesis-game/pulsyflux-stream/actions/runs/44899333922), run #161, checked out exact HEAD `7a071f12bf245cff0c46bb73fa7ed526093f766d`.
+- Cleanup succeeded. Linux passed formatting, race tests, coverage reporting, artifact upload, vet, and build. Linux aggregate coverage was **81.4%**.
+- Windows formatting passed, but the test step failed before producing a profile. PowerShell passed/parsed the command such that Go treated `.out` as a package and reported `no required module provides package .out`. The Windows package test itself reported 80.9%, but the overall command failed due to the extra `.out` package argument. No Windows per-function report or artifact was produced.
+- This is a workflow shell/argument parsing defect, not evidence of a source or test failure. Do not use run #161 as a completed cross-platform coverage comparison.
+
+### Follow-up and current verification
+- Commit `b54bb44bb498a644acfc0f051ce5da21026e4e96` explicitly sets `shell: bash` for the coverage test, vet, and build steps.
+- New push-triggered CI run: [44899535090](https://github.com/gunesis-game/pulsyflux-stream/actions/runs/44899535090), run #162, exact head SHA `b54bb44bb498a644acfc0f051ce5da21026e4e96`. At the time this handoff was written, it was still `in_progress`; do not claim it passed until all jobs and logs are inspected.
+- The original 0.5 percentage-point coverage discrepancy (81.4% Linux vs 80.9% Windows) remains unexplained. Once run #162 succeeds, compare per-function reports/artifacts. Distinguish intentionally OS-specific code (for example Linux directory-sync support vs Windows fail-closed behavior) from genuinely untested shared logic; do not add tests merely to equalize percentages.
+- No local tests or builds are claimed. GitHub Actions is the verification source.
+- This handoff update is Markdown-only and should not trigger CI.
+
+### Next steps
+1. Verify run #162 to completion against the exact SHA above; inspect cleanup and both OS jobs and their complete logs.
+2. Confirm both coverage artifacts uploaded, then compare per-function reports. If needed, inspect the profiles to identify statement-level differences.
+3. Only after the reports identify concrete uncovered behavior, add focused tests or document intentional platform exclusions. Preserve the strict Windows `SyncEachAppend` unsupported behavior.
+4. Append a new handoff with the verified run #162 outcome and concrete coverage comparison.
