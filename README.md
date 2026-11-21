@@ -62,7 +62,6 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	event.Name = "player.joined"
 	if err := event.SetData(PlayerJoined{PlayerID: "player-42"}); err != nil {
 		log.Fatal(err)
 	}
@@ -71,7 +70,7 @@ func main() {
 	}
 
 	event = <-sub.Events()
-	fmt.Printf("%s: %s\n", event.Name, event.Data().PlayerID)
+	fmt.Printf("%s: %s\n", event.TypeName(), event.Data().PlayerID)
 
 	_ = left // This channel can own other independently typed streams too.
 }
