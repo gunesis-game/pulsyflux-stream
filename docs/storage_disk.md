@@ -218,12 +218,7 @@ flowchart TD
     Write --> WriteOK{"Write succeeded?"}
     WriteOK -- No --> StickyFail
     WriteOK -- Yes --> Advance["Increase size<br/>advance nextSequence"]
-    Advance --> Sync{"syncEachAppend enabled?"}
-    Sync -- No --> Return["Return sequence + EventID"]
-    Sync -- Yes --> FlushSync["Flush buffer, then file.Sync()"]
-    FlushSync --> SyncOK{"Flush and file sync succeeded?"}
-    SyncOK -- No --> StickyFail
-    SyncOK -- Yes --> Return
+    Advance --> Return["Return sequence + EventID"]
 ```
 
 **Important details**
