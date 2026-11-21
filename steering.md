@@ -90,33 +90,32 @@ Do not introduce a public storage API until the internal storage contract and du
 - Windows research found no documented, supported standard-user Win32/native API sequence for flushing directory namespace metadata with the required crash-durability guarantee. Do not introduce an undocumented directory-handle flush or infer durability from an API call merely returning success. Revisit strict durability through a separately designed architecture or a clearly scoped, user-approved operational requirement.
 - The current cross-platform behavior is intentionally uniform and fail-closed; strict per-append durability remains unavailable rather than being silently weakened.
 
-## Current handoff — storage write/read memory review complete; await Find/Seek contract (2026-11-21)
+## Current handoff — schema-aware event codec centralized; replay next (2026-11-21)
 
 ### Repository and verified checkpoint
-- Repository: `gunesis-game/pulsyflux-stream`; branch: `main` only.
-- Exact code SHA tested: `9784ab71c077eb2477d917dd8f47a7cba694c3c1`.
-- CI run [44902287924](https://github.com/gunesis-game/pulsyflux-stream/actions/runs/44902287924), run #169, completed successfully for that exact SHA. Cleanup and both OS jobs passed formatting, race-enabled tests, coverage report generation, artifact upload, vet, and build.
-- Mandatory coverage comparison from run #169: Linux **83.6%**, Windows **83.6%** (0.0 percentage-point difference). Both per-function reports contained 54 entries and matched exactly.
-- The encoder preflight change and storage documentation are on `main`. The on-disk version-1 record layout, JSON field order, HTML/string escaping, RawMessage compaction, and checksum format are preserved.
-- No local Go test execution is claimed. Markdown-only steering updates do not trigger CI.
+- Repository: `gunesis-game/pulsyflux-stream`; work directly on `main`, no branches.
+- Exact code SHA tested: `44c7ee35221899017b4edaaaceae06c65706518f`.
+- CI run [44903635287](https://github.com/gunesis-game/pulsyflux-stream/actions/runs/44903635287), run #178, completed successfully for that exact SHA. Cleanup and both Linux/Windows jobs passed formatting, race-enabled tests, coverage report generation, artifact upload, vet, and build.
+- Aggregate coverage: Linux **83.9%**, Windows **83.9%**. All 54 per-function entries match. Statement profiles have the same 464 blocks; one `stream.go` publish-send block has execution counts 807 vs. 806, but is covered on both platforms. This is an expected count variation, not a missing-coverage difference.
+- No local Go test execution is claimed. This codec change does not alter disk framing or persisted record layout; `docs/storage_disk.md` remains applicable and unchanged.
 
-### Verified storage memory model
-- `maxRecordBytes` caps the final encoded JSON body at **64 MiB**.
-- `encodeDiskRecord` now computes the exact marshaled body size before calling `json.Marshal(r)` or allocating the frame. It uses `json.Valid`, a non-allocating JSON RawMessage compaction/escaping size pass, and exact Go JSON string-size accounting for metadata. This includes HTML escapes and U+2028/U+2029 handling. An oversized encoded body is rejected before the full encoded body/frame allocations.
-- The preflight does not simply reject based on raw `Payload` byte length: valid RawMessage whitespace is compacted exactly as before, and only the final encoded body is subject to the 64 MiB limit.
-- The final JSON body is bounded by 64 MiB; the frame allocation adds the framing bytes and copies that body, so peak encoder memory can include both bounded buffers plus the caller-owned payload. The fix removes the unbounded intermediate JSON allocation, not every bounded copy.
-- Tests compare preflight byte counts to `json.Marshal`, assert version-1 body bytes remain identical, and cover over-limit bodies, invalid RawMessage JSON, escaping, whitespace compaction, control characters, and Unicode line separators.
-- `scanDiskRecords` and `readDiskRecord` process one frame at a time, with one contiguous frame buffer rather than a body buffer plus a second full-frame copy. Their record-processing memory is O(maxRecordBytes), independent of records per segment or aggregate segment bytes.
-- `diskSegments` uses `os.ReadDir`, sorts segment metadata, and retains O(number of segment files) path metadata. Memory therefore grows with segment count, but not with the bytes or record count inside a segment.
-- Incomplete final header/body remains recoverable only during writer startup on the active segment. Complete malformed/oversized frames and incomplete tails in non-active segments remain corruption. Reader behavior remains fail-closed and never truncates/skips.
+### Completed codec ownership change
+- `Event[T]` remains the typed domain model in `event.go`: payload, timestamp, redaction policy, payload assignment, validation, and access.
+- `schema.go` owns the private event envelope, event type-name derivation, schema-aware redaction/serialization, schema fingerprint derivation for the event layer, and decoding with persisted fingerprint/type validation.
+- `encodeEventSchema` returns the opaque encoded envelope plus its schema fingerprint and type name for internal persistence. `decodeEventSchema` requires the fingerprint stored with the record and rejects mismatches before reconstructing the typed event.
+- Redaction policy is intentionally supplied by the registered typed stream during decode; it is not persisted in the envelope. Persisted redacted data cannot restore excluded values.
+- Tests exercise the schema codec directly, preserve redaction and timestamp round-trip behavior, and reject a mismatched fingerprint.
+- Storage remains opaque and does not own payload types or redaction rules. No public serializer, deserializer, fingerprint, UUID, or storage-record API was added.
 
-### Next task and prerequisites
-- Do **not** implement an index or Find/Seek yet. There is no concrete user requirement or agreed lookup contract.
-- Before indexing, obtain a concrete Find/Seek use case and define: lookup key(s), scope (stream/channel/global), ordering guarantees, inclusive/exclusive cursor semantics, behavior across rotations/recovery, index rebuild/corruption behavior, and whether an index is a rebuildable cache or durable source of truth.
-- Once that contract exists, inspect the segment layout and recovery boundary, propose the smallest rebuildable index design, and get agreement before changing the on-disk format or public API.
-- Until then, preserve sequential scan/recovery and do not add SQL, distributed infrastructure, segment pruning, or public storage APIs.
-- `SyncEachAppend` remains unavailable on both Linux and Windows until a reliable, documented, tested directory-entry durability implementation exists for both. Never reintroduce asymmetric or file-only fallback behavior.
+### Next task: design channel/stream replay delivery
+- Replay is a package-level channel/stream capability, not direct storage access for consumers. Do not expose storage records, segment paths, internal event IDs, fingerprints, or event-level lookup APIs.
+- Replay must publish reconstructed events to existing subscribers through their normal subscription channels, as agreed. Do not introduce a separate replay-only consumer channel.
+- Before implementation, inspect current storage lifecycle/recorder integration and design an ordering boundary that prevents replay/live interleaving gaps or duplicates. Prefer a persisted high-water sequence boundary: replay records through the boundary, then deliver buffered live events after it, preserving sequence order.
+- Define channel replay (all persisted events in the channel) and typed stream replay (events for the selected registered stream). Respect channel/stream instance identity, schema fingerprint, event type, current redaction policy, segment rotation, and restart sequence continuity.
+- Keep the append-only log authoritative. Start with sequential scan/filtering; do not add an index unless measured replay performance establishes a need.
+- Before coding, specify lifecycle/concurrency behavior for Subscribe, Publish, Close, slow subscribers, recorder errors, and replay errors. Add tests for replay/live races, no duplicates or gaps, channel-vs-stream filtering, ordering across rotations/restarts, schema mismatch, redaction, and Windows/Linux parity.
+- Preserve the existing live Publish atomicity guarantee and all public event/stream/channel APIs except an explicitly agreed replay entry point. Do not re-record replayed events by the same recorder by default.
 
-### Non-goals
-- Do not change the existing public event/stream/channel API or expose internal IDs/fingerprints.
-- Do not begin indexing merely to improve startup performance without a concrete Find/Seek requirement and agreed contract.
+### Durable constraints
+- `SyncEachAppend` remains rejected on both Linux and Windows until documented, reliable directory-entry durability exists and is tested identically on both platforms.
+- Do not implement Find/Seek, SQL, distributed infrastructure, segment pruning, or public storage APIs without a concrete requirement and agreed contract.
