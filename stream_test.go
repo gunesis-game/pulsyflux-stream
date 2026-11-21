@@ -335,56 +335,17 @@ func TestConcurrentPublishAndSubscribe(t *testing.T) {
 	wg.Wait()
 }
 
-func TestEventChannelUsesStableUUID(t *testing.T) {
-	type persistedEvent struct{ Value string }
+func TestEventChannelIdentityIsPrivateAndUnique(t *testing.T) {
+	first := NewEventChannel()
+	second := NewEventChannel()
+	defer first.Close()
+	defer second.Close()
 
-	id := uuid.MustParse("3a85f5f2-6e15-4c0d-8b3e-7f4d52f1b123")
-	firstChannel, err := NewEventChannelWithID(id)
-	if err != nil {
-		t.Fatal(err)
+	if first.id == uuid.Nil || second.id == uuid.Nil {
+		t.Fatal("constructor created a nil internal identity")
 	}
-	if firstChannel.ID != id {
-		t.Fatalf("channel ID = %s, want %s", firstChannel.ID, id)
+	if first.id == second.id {
+		t.Fatal("distinct channels shared an internal identity")
 	}
-
-	first, err := New[persistedEvent](firstChannel, 4)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// A reconstructed handle with the same UUID addresses the same logical
-	// stream identity and cannot register a duplicate event type.
-	restoredChannel, err := NewEventChannelWithID(id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := Get[persistedEvent](restoredChannel); got != first {
-		t.Fatal("restored channel did not resolve the stream by UUID")
-	}
-	if _, err := New[persistedEvent](restoredChannel, 4); !errors.Is(err, ErrDuplicateStream) {
-		t.Fatalf("got %v, want ErrDuplicateStream for same UUID", err)
-	}
-
-	firstChannel.Close()
-
-	// Closing removes the in-memory streams, but does not invalidate the
-	// persisted logical UUID. A new handle can register streams for replay.
-	replayedChannel, err := NewEventChannelWithID(id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	replayed, err := New[persistedEvent](replayedChannel, 4)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if replayed == first {
-		t.Fatal("reconstructed channel reused the closed in-memory stream")
-	}
-	replayedChannel.Close()
 }
 
-func TestNewEventChannelWithIDRejectsNilUUID(t *testing.T) {
-	if _, err := NewEventChannelWithID(uuid.Nil); !errors.Is(err, ErrNilEventChannelID) {
-		t.Fatalf("got %v, want ErrNilEventChannelID", err)
-	}
-}
