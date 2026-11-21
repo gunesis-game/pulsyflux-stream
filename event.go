@@ -137,4 +137,3 @@ func jsonFieldName(field reflect.StructField) (string, bool) {
 	}
 	return name, false
 }
-
