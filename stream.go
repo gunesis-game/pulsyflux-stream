@@ -4,6 +4,7 @@ package stream
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 )
@@ -23,15 +24,11 @@ var (
 	ErrInvalidBufferSize = errors.New("stream: buffer size must be greater than zero")
 	// ErrDuplicateStream is returned when an EventChannel already owns a stream
 	// for the requested event type.
-	ErrDuplicateStream = errors.New("stream: event type already registered in channel")\n\t// ErrUnsetEventData is returned when publishing an event without SetData.\n\tErrUnsetEventData = errors.New("stream: event data was not set")
+	ErrDuplicateStream = errors.New("stream: event type already registered in channel")
+	// ErrUnsetEventData is returned when publishing an event without SetData.
+	ErrUnsetEventData = errors.New("stream: event data was not set")
 )
 
-// Event is a value published to a Stream.
-type Event[T any] struct {
-	Name string
-	Data T
-	Time time.Time
-}
 
 type subscriber[T any] struct {
 	ch   chan Event[T]
@@ -147,6 +144,12 @@ func (s *Stream[T]) Publish(event Event[T]) error {
 
 	if s.closed {
 		return ErrClosed
+	}
+	if err := event.validate(); err != nil {
+		return fmt.Errorf("stream: invalid event policy: %w", err)
+	}
+	if !event.dataSet {
+		return ErrUnsetEventData
 	}
 	if event.Time.IsZero() {
 		event.Time = time.Now()
