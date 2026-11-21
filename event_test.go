@@ -118,7 +118,7 @@ func TestEventDeserializeRoundTripRedactedData(t *testing.T) {
 	if err := event.SetData(payload{ID: "u1", Secret: "hidden"}); err != nil {
 		t.Fatal(err)
 	}
-	raw, err := encodeEventSchema(&event)
+	raw, fingerprint, _, err := encodeEventSchema(&event)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,12 +165,20 @@ func TestSetDataRejectsNonJSONPayloadAndKeepsPreviousData(t *testing.T) {
 }
 
 func TestEventDeserializeRejectsSchemaFingerprintMismatch(t *testing.T) {
-	type payload struct { Value string }
+	type payload struct {
+		Value string
+	}
 	event, err := NewEvent[payload](NewRedactionPolicy())
-	if err != nil { t.Fatal(err) }
-	if err := event.SetData(payload{Value: "ok"}); err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := event.SetData(payload{Value: "ok"}); err != nil {
+		t.Fatal(err)
+	}
 	raw, fingerprint, _, err := encodeEventSchema(&event)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := decodeEventSchema[payload](raw, fingerprint+"x", NewRedactionPolicy()); err == nil {
 		t.Fatal("expected schema fingerprint mismatch")
 	}
