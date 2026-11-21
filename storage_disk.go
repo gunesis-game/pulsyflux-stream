@@ -33,11 +33,11 @@ var errRecordCorrupt = errors.New("stream: corrupt storage record")
 var errDirectorySyncUnsupported = errors.New("stream: SyncEachAppend requires durable directory sync, which is not currently supported")
 
 type schemaFingerprints struct {
-	EventBase       string
-	EventEffective  string
-	StreamBase      string
-	StreamEffective string
-	ChannelBase     string
+	EventBase        string
+	EventEffective   string
+	StreamBase       string
+	StreamEffective  string
+	ChannelBase      string
 	ChannelEffective string
 }
 
