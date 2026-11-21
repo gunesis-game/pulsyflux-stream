@@ -36,7 +36,7 @@ func encodeEventSchema[T any](event *Event[T]) ([]byte, string, string, error) {
 	if err != nil {
 		return nil, "", "", fmt.Errorf("marshal event data: %w", err)
 	}
-	redacted, err := redactSchemaJSON(raw, event.redactionPolicy)
+	redacted, err := redactSchemaJSON(raw, event.redactionPolicy.exclude)
 	if err != nil {
 		return nil, "", "", fmt.Errorf("redact event data: %w", err)
 	}
