@@ -3,12 +3,11 @@ package stream
 import (
 	"fmt"
 	"reflect"
-	"strings"
 	"time"
 )
 
-// RedactionPolicy defines JSON fields that must be removed from an event payload before
-// the event is persisted. Paths use JSON field names.
+// RedactionPolicy defines JSON field paths excluded by Event serialization.
+// Paths use JSON field names; the generic redaction implementation lives in schema.go.
 type RedactionPolicy struct {
 	exclude []string
 }
@@ -33,13 +32,11 @@ type Event[T any] struct {
 // NewEvent constructs an event and validates its redactionPolicy against T.
 func NewEvent[T any](redactionPolicy RedactionPolicy) (Event[T], error) {
 	redactionPolicy.exclude = append([]string(nil), redactionPolicy.exclude...)
-	for i, path := range redactionPolicy.exclude {
-		redactionPolicy.exclude[i] = strings.TrimSpace(path)
-	}
-	event := Event[T]{time: time.Now(), redactionPolicy: redactionPolicy}
-	if err := event.validate(); err != nil {
+	normalized, err := normalizeSchemaRedactionPaths(reflect.TypeOf((*T)(nil)).Elem(), redactionPolicy.exclude)
+	if err != nil {
 		return Event[T]{}, fmt.Errorf("invalid event redaction policy: %w", err)
 	}
+	event := Event[T]{time: time.Now(), redactionPolicy: RedactionPolicy{exclude: normalized}}
 	return event, nil
 }
 
@@ -48,7 +45,7 @@ func (e *Event[T]) SetData(data T) error {
 	if err := e.validate(); err != nil {
 		return fmt.Errorf("invalid event redaction policy: %w", err)
 	}
-	if err := validateEventData(data); err != nil {
+	if err := validateSchemaData(data); err != nil {
 		return err
 	}
 	e.data = data
@@ -61,79 +58,8 @@ func (e *Event[T]) Data() T {
 	return e.data
 }
 
-// validate checks the redaction paths against the payload type T.
+// validate checks the event's configured exclusions using generic schema rules.
 func (e *Event[T]) validate() error {
-	t := reflect.TypeOf((*T)(nil)).Elem()
-	seen := make(map[string]struct{}, len(e.redactionPolicy.exclude))
-
-	for _, rawPath := range e.redactionPolicy.exclude {
-		path := strings.TrimSpace(rawPath)
-		if path == "" {
-			return fmt.Errorf("empty exclusion path")
-		}
-		if _, duplicate := seen[path]; duplicate {
-			return fmt.Errorf("duplicate exclusion path %q", path)
-		}
-		seen[path] = struct{}{}
-
-		parts := strings.Split(path, ".")
-		for _, part := range parts {
-			if part == "" {
-				return fmt.Errorf("invalid exclusion path %q", path)
-			}
-		}
-		if err := validatePath(t, parts); err != nil {
-			return fmt.Errorf("exclusion %q: %w", path, err)
-		}
-	}
-	return nil
-}
-
-func validatePath(t reflect.Type, parts []string) error {
-	t = unwrapContainers(t)
-	if t.Kind() != reflect.Struct {
-		return fmt.Errorf("cannot traverse %s", t.Kind())
-	}
-
-	for i := 0; i < t.NumField(); i++ {
-		field := t.Field(i)
-		if field.PkgPath != "" { // unexported field
-			continue
-		}
-		name, ignored := jsonFieldName(field)
-		if ignored || name != parts[0] {
-			continue
-		}
-		if len(parts) == 1 {
-			return nil
-		}
-		return validatePath(field.Type, parts[1:])
-	}
-	return fmt.Errorf("field %q does not exist on %s", parts[0], t)
-}
-
-func unwrapContainers(t reflect.Type) reflect.Type {
-	for {
-		switch t.Kind() {
-		case reflect.Pointer, reflect.Slice, reflect.Array:
-			t = t.Elem()
-		default:
-			return t
-		}
-	}
-}
-
-func jsonFieldName(field reflect.StructField) (string, bool) {
-	tag := field.Tag.Get("json")
-	if tag == "-" {
-		return "", true
-	}
-	name := field.Name
-	if tag != "" {
-		tagName := strings.Split(tag, ",")[0]
-		if tagName != "" {
-			name = tagName
-		}
-	}
-	return name, false
+	_, err := normalizeSchemaRedactionPaths(reflect.TypeOf((*T)(nil)).Elem(), e.redactionPolicy.exclude)
+	return err
 }
