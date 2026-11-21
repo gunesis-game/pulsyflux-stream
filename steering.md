@@ -319,3 +319,45 @@ If implementation is mid-flight, record the exact stopping point, uncommitted or
 2. Treat `19048e3843f623bcb034860a647c2ac4b680a9c9` and CI run `44897481661` as the latest verified implementation checkpoint.
 3. Do not repeat the completed formatting-gate work unless a later change reintroduces formatting drift.
 4. Continue with the directory-durability contract decision above; do not implement speculative OS-specific syncing before the supported platforms and crash-durability semantics are defined.
+
+## Session handoff — platform scope selected for disk durability (2026-11-21)
+
+### Current repository state
+- Repository: gunesis-game/pulsyflux-stream; branch: main.
+- Current HEAD before this handoff: d0b9f2fd560e447b5afc6e43f15d48122edc0d64.
+- Latest verified implementation remains 19048e3843f623bcb034860a647c2ac4b680a9c9, with successful CI run 44897481661 (formatting, race tests, vet, build; 81.9% coverage).
+- This handoff is documentation-only; do not claim it was tested by CI.
+
+### User decision
+- Supported operating systems for the disk backend: **Linux and Windows**.
+- This resolves the OS scope question. It does not yet define whether SyncEachAppend must provide equivalent sudden-power-loss durability on both systems.
+
+### Platform research and design constraints
+- Linux fsync(2) documentation states that syncing a file does not necessarily persist its containing directory entry; an explicit fsync on the parent directory is required for that. See https://man7.org/linux/man-pages/man2/fsync.2.html and https://www.man7.org/linux/man-pages/man2/fdatasync.2.html.
+- Microsoft documents that opening a directory requires CreateFile with FILE_FLAG_BACKUP_SEMANTICS: https://learn.microsoft.com/en-us/windows/win32/fileio/obtaining-a-handle-to-a-directory and https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew.
+- Microsoft documents that FlushFileBuffers requires GENERIC_WRITE access on the handle: https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-flushfilebuffers.
+- The reviewed Windows documentation does not establish a portable, supported equivalent to Linux parent-directory fsync for persisting a newly created segment directory entry. Do not assume that opening a directory and calling os.File.Sync or FlushFileBuffers provides the Linux guarantee.
+- Current implementation creates segment files with os.OpenFile(..., O_CREATE|O_EXCL|O_WRONLY, ...); SyncEachAppend flushes the buffered writer and calls w.file.Sync(). newSegment does not sync the parent directory. Rotation flushes/closes the prior segment before creating the next.
+- Current CI runs only on Ubuntu. A Linux+Windows support commitment should eventually be reflected in a CI matrix, with race tests run where the Go toolchain/platform supports them and all supported platforms running formatting, tests, vet, and build as appropriate.
+- No implementation or CI changes have been made for this durability task yet. docs/storage_disk.md has not yet been changed; it must be updated with the agreed cross-platform guarantee before platform-specific implementation.
+
+### Required user decision before coding
+Present this explicit trade-off:
+1. **Asymmetric guarantee:** Linux syncs the parent directory after segment creation and can claim the documented file-plus-directory sync sequence (subject to filesystem/device honoring sync). Windows syncs file contents but does not claim that a newly created segment name survives sudden power loss. Windows remains supported with a weaker namespace-durability guarantee.
+2. **Strict guarantee:** SyncEachAppend must not report success on Windows unless a reliable, supported directory-entry durability mechanism is established and tested. If no such mechanism is available, return an explicit unsupported/error result rather than silently weakening the guarantee.
+
+Ask the user to choose one before implementing. Do not infer this policy from the OS list alone.
+
+### Next task
+1. Obtain the user's choice between asymmetric durability and strict cross-platform durability.
+2. Update docs/storage_disk.md first with the selected contract, limitations, failure semantics, and updated writer/rotation/sync diagrams.
+3. Implement platform-specific directory synchronization only where the contract and platform APIs support it. Keep platform code in OS-suffixed files and test Linux and Windows behavior; do not introduce unverified Windows directory flushing.
+4. Add Linux and Windows to the CI matrix. Preserve the non-mutating gofmt gate, race test on supported runners, vet, and build.
+5. Run CI and verify exact commit SHA, each matrix job/step, and logs.
+6. Update this steering handoff after CI with post-CI analysis, any gaps, and the next actionable task.
+
+### Fresh-session instructions
+- Verify current main HEAD and latest CI before proceeding.
+- Treat the user decision “Linux and Windows” as settled.
+- The remaining blocker is the cross-platform durability contract, not the OS support list.
+- Do not change code until the user chooses the asymmetric or strict guarantee above.
