@@ -3,7 +3,6 @@ package stream
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"reflect"
 	"sort"
