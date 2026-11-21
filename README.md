@@ -58,15 +58,20 @@ func main() {
 	}
 	defer sub.Close()
 
-	if err := joined.Publish(stream.Event[PlayerJoined]{
-		Name: "player.joined",
-		Data: PlayerJoined{PlayerID: "player-42"},
-	}); err != nil {
+	event, err := stream.NewEvent[PlayerJoined](stream.NewPolicy())
+	if err != nil {
+		log.Fatal(err)
+	}
+	event.Name = "player.joined"
+	if err := event.SetData(PlayerJoined{PlayerID: "player-42"}); err != nil {
+		log.Fatal(err)
+	}
+	if err := joined.Publish(event); err != nil {
 		log.Fatal(err)
 	}
 
-	event := <-sub.Events()
-	fmt.Printf("%s: %s\n", event.Name, event.Data.PlayerID)
+	event = <-sub.Events()
+	fmt.Printf("%s: %s\\n", event.Name, event.Data().PlayerID)
 
 	_ = left // This channel can own other independently typed streams too.
 }
