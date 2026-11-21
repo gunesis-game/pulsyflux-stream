@@ -101,7 +101,7 @@ func TestSchemaRedactionAppliesPathsToJSONCopy(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	redacted, err := redactSchemaJSON(raw, []string{"users.password"})
+	redacted, err := redactEventJSON(raw, []string{"users.password"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +120,7 @@ func TestNormalizeSchemaRedactionPaths(t *testing.T) {
 	type payload struct {
 		AccessToken string `json:"access_token"`
 	}
-	paths, err := normalizeSchemaRedactionPaths(reflect.TypeOf(payload{}), []string{" access_token "})
+	paths, err := normalizeEventRedactionPaths(reflect.TypeOf(payload{}), []string{" access_token "})
 	if err != nil {
 		t.Fatal(err)
 	}

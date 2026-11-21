@@ -21,15 +21,15 @@ func NewRedactionPolicy(exclude ...string) RedactionPolicy {
 	return RedactionPolicy{exclude: append([]string(nil), exclude...)}
 }
 
-// validateSchemaData checks whether a value can be represented as JSON.
-func validateSchemaData[T any](data T) error {
+// validateEventData checks whether a value can be represented as JSON.
+func validateEventData[T any](data T) error {
 	_, err := json.Marshal(data)
 	return err
 }
 
-// normalizeSchemaRedactionPaths validates and copies JSON field paths for a
+// normalizeEventRedactionPaths validates and copies JSON field paths for a
 // particular data shape. It is independent of Event, Stream, and Channel.
-func normalizeSchemaRedactionPaths(t reflect.Type, paths []string) ([]string, error) {
+func normalizeEventRedactionPaths(t reflect.Type, paths []string) ([]string, error) {
 	normalized := append([]string(nil), paths...)
 	seen := make(map[string]struct{}, len(normalized))
 	for i, rawPath := range normalized {
@@ -47,7 +47,7 @@ func normalizeSchemaRedactionPaths(t reflect.Type, paths []string) ([]string, er
 				return nil, fmt.Errorf("invalid exclusion path %q", path)
 			}
 		}
-		if err := validateSchemaRedactionPath(t, parts); err != nil {
+		if err := validateEventRedactionPath(t, parts); err != nil {
 			return nil, fmt.Errorf("exclusion %q: %w", path, err)
 		}
 		normalized[i] = path
@@ -55,8 +55,8 @@ func normalizeSchemaRedactionPaths(t reflect.Type, paths []string) ([]string, er
 	return normalized, nil
 }
 
-func validateSchemaRedactionPath(t reflect.Type, parts []string) error {
-	t = unwrapSchemaContainers(t)
+func validateEventRedactionPath(t reflect.Type, parts []string) error {
+	t = unwrapEventRedactionContainers(t)
 	if t.Kind() != reflect.Struct {
 		return fmt.Errorf("cannot traverse %s", t.Kind())
 	}
@@ -65,19 +65,19 @@ func validateSchemaRedactionPath(t reflect.Type, parts []string) error {
 		if field.PkgPath != "" {
 			continue
 		}
-		name, ignored := schemaJSONFieldNameWithIgnore(field)
+		name, ignored := eventJSONFieldNameWithIgnore(field)
 		if ignored || name != parts[0] {
 			continue
 		}
 		if len(parts) == 1 {
 			return nil
 		}
-		return validateSchemaRedactionPath(field.Type, parts[1:])
+		return validateEventRedactionPath(field.Type, parts[1:])
 	}
 	return fmt.Errorf("field %q does not exist on %s", parts[0], t)
 }
 
-func unwrapSchemaContainers(t reflect.Type) reflect.Type {
+func unwrapEventRedactionContainers(t reflect.Type) reflect.Type {
 	for {
 		switch t.Kind() {
 		case reflect.Pointer, reflect.Slice, reflect.Array:
@@ -88,7 +88,7 @@ func unwrapSchemaContainers(t reflect.Type) reflect.Type {
 	}
 }
 
-func schemaJSONFieldNameWithIgnore(field reflect.StructField) (string, bool) {
+func eventJSONFieldNameWithIgnore(field reflect.StructField) (string, bool) {
 	tag := field.Tag.Get("json")
 	if tag == "-" {
 		return "", true
@@ -103,15 +103,15 @@ func schemaJSONFieldNameWithIgnore(field reflect.StructField) (string, bool) {
 	return name, false
 }
 
-// redactSchemaJSON applies JSON field exclusions to a serialized data copy.
+// redactEventJSON applies JSON field exclusions to a serialized data copy.
 // It never mutates the caller's value and can be used by any schema adapter.
-func redactSchemaJSON(raw []byte, paths []string) ([]byte, error) {
+func redactEventJSON(raw []byte, paths []string) ([]byte, error) {
 	var value any
 	if err := json.Unmarshal(raw, &value); err != nil {
 		return nil, fmt.Errorf("decode schema data for redaction: %w", err)
 	}
 	for _, path := range paths {
-		redactSchemaPath(value, strings.Split(path, "."))
+		redactEventPath(value, strings.Split(path, "."))
 	}
 	redacted, err := json.Marshal(value)
 	if err != nil {
@@ -120,14 +120,14 @@ func redactSchemaJSON(raw []byte, paths []string) ([]byte, error) {
 	return redacted, nil
 }
 
-func redactSchemaPath(value any, parts []string) {
+func redactEventPath(value any, parts []string) {
 	if len(parts) == 0 {
 		return
 	}
 	switch v := value.(type) {
 	case []any:
 		for _, item := range v {
-			redactSchemaPath(item, parts)
+			redactEventPath(item, parts)
 		}
 	case map[string]any:
 		key := parts[0]
@@ -136,7 +136,7 @@ func redactSchemaPath(value any, parts []string) {
 			return
 		}
 		if child, ok := v[key]; ok {
-			redactSchemaPath(child, parts[1:])
+			redactEventPath(child, parts[1:])
 		}
 	}
 }
@@ -154,7 +154,7 @@ type Event[T any] struct {
 
 // NewEvent constructs an event and validates its redactionPolicy against T.
 func NewEvent[T any](redactionPolicy RedactionPolicy) (Event[T], error) {
-	normalized, err := normalizeSchemaRedactionPaths(reflect.TypeOf((*T)(nil)).Elem(), redactionPolicy.exclude)
+	normalized, err := normalizeEventRedactionPaths(reflect.TypeOf((*T)(nil)).Elem(), redactionPolicy.exclude)
 	if err != nil {
 		return Event[T]{}, fmt.Errorf("invalid event redaction policy: %w", err)
 	}
@@ -170,7 +170,7 @@ func (e *Event[T]) SetData(data T) error {
 	if err := e.validate(); err != nil {
 		return fmt.Errorf("invalid event redaction policy: %w", err)
 	}
-	if err := validateSchemaData(data); err != nil {
+	if err := validateEventData(data); err != nil {
 		return fmt.Errorf("invalid event data: %w", err)
 	}
 	e.data = data
@@ -185,6 +185,6 @@ func (e *Event[T]) Data() T {
 
 // validate checks the event's configured exclusions using generic schema rules.
 func (e *Event[T]) validate() error {
-	_, err := normalizeSchemaRedactionPaths(reflect.TypeOf((*T)(nil)).Elem(), e.redactionPolicy.exclude)
+	_, err := normalizeEventRedactionPaths(reflect.TypeOf((*T)(nil)).Elem(), e.redactionPolicy.exclude)
 	return err
 }
