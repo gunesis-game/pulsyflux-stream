@@ -111,7 +111,7 @@ Do not introduce a public storage API until the internal storage contract and du
 
 ### Repository and verified checkpoint
 - Repository: `gunesis-game/pulsyflux-stream`; work directly on `main`, no branches.
-- Current code SHA: `4c432a2eefc858c0289a0392bea79684059be846`.
+- Current `main` HEAD: `c7a631bf05b96d2a23aa0b03515269f217cdb7d1` (documentation-only commit).\n- Current code SHA: `4c432a2eefc858c0289a0392bea79684059be846`; CI run #217 remains the verified code checkpoint.
 - CI run #217 ([44918459724](https://github.com/gunesis-game/pulsyflux-stream/actions/runs/44918459724)) tested that exact SHA and passed on Linux and Windows.
 - Both platforms passed non-mutating formatting verification, `go test -race -coverprofile=coverage.out ./...`, per-function coverage reporting, artifact upload, `go vet ./...`, and `go build ./...`.
 - Aggregate statement coverage: Linux 84.4%, Windows 84.4%. Both reports contained 60 function entries and every per-function percentage matched. No platform-specific coverage discrepancy was found.
@@ -135,7 +135,7 @@ Do not introduce a public storage API until the internal storage contract and du
 - Channel base identity includes the `TStream` context and all registered stream base identities, sorted deterministically.
 - For a record, Channel effective identity includes the active stream's event-specific effective identity; other registered streams contribute their default effective identity (empty redaction policy). This makes event-level policy variation explicit without freezing one policy on a stream or channel.
 - `Stream.schemaFingerprintsFor(event)` derives all six record fingerprints (Event, Stream, Channel base/effective) from runtime objects. The disk writer already accepts the six-value `schemaFingerprints` input, but the recorder/writer lifecycle is not yet connected.
-- Added `docs/schema_identity.md` describing the contract and its per-record policy behavior.
+- Added `docs/schema_identity.md` describing the contract and its per-record policy behavior.\n- Added `docs/record_scope.md` defining the system-of-record lookup model: resolve the channel from the `TStream` base schema identity, then resolve a stream within that channel, yielding the stream's event-record collection. The two-stage model is logical; storage may use a composite index without changing scope semantics.
 - Removed the obsolete layer-only `schemaFingerprint` helper; runtime identity composition now uses the shared base/effective identity contract.
 
 ### Remaining confirmed gaps and risks
