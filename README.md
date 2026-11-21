@@ -56,7 +56,7 @@ func main() {
 	}
 
 	received := <-sub.Events()
-	fmt.Printf("player joined: %s\\n", received.Data().PlayerID)
+	fmt.Printf("player joined: %s\n", received.Data().PlayerID)
 }
 ```
 
