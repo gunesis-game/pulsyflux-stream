@@ -25,9 +25,9 @@ func NewRedactionPolicy(exclude ...string) RedactionPolicy {
 type Event[T any] struct {
 	time time.Time
 
-	data    T
-	dataSet bool
-	redactionPolicy  RedactionPolicy
+	data           T
+	dataSet        bool
+	redactionPolicy RedactionPolicy
 }
 
 // NewEvent constructs an event and validates its redactionPolicy against T.
