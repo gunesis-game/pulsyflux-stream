@@ -184,6 +184,13 @@ func TestEventChannelCloseClosesOwnedStreams(t *testing.T) {
 	}
 }
 
+func TestPublishRejectsEventWithoutSetData(t *testing.T) {
+	s := newTestStream[int](t, 1)
+	if err := s.Publish(Event[int]{}); !errors.Is(err, ErrUnsetEventData) {
+		t.Fatalf("got %v, want ErrUnsetEventData", err)
+	}
+}
+
 func TestPublishToMultipleSubscribers(t *testing.T) {
 	s := newTestStream[string](t, 2)
 	a, err := s.Subscribe(context.Background())
