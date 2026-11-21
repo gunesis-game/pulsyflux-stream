@@ -21,12 +21,12 @@ func NewRedactionPolicy(exclude ...string) RedactionPolicy {
 }
 
 // Event is a typed event with metadata and a payload governed by a redaction
-// redactionPolicy. Data is intentionally private so assignments go through SetData.
+// redaction policy. Data is intentionally private so assignments go through SetData.
 type Event[T any] struct {
 	time time.Time
 
-	data           T
-	dataSet        bool
+	data            T
+	dataSet         bool
 	redactionPolicy RedactionPolicy
 }
 
