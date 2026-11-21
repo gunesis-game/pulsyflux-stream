@@ -61,7 +61,9 @@ Maintain a small, typed, concurrency-safe Go event-stream library. Keep the live
 
 ## Current handoff (2026-11-22)
 - Repository: `gunesis-game/pulsyflux-stream`, branch `main`.
-- Latest verified code commit: `fa5082fd6dc008453c9a50140c9fd7c8389027a7`; CI run [44963453756](https://github.com/gunesis-game/pulsyflux-stream/actions/runs/44963453756) passed Ubuntu and Windows, including formatting, race tests/coverage, vet and build.
-- Current code still has schema fingerprints, UUID stream/channel identities, and version-2 disk records. The agreed architecture in this file remains the target; no migration compatibility decision has been made.
-- Next checkpoint: remove Event serialization adapters from `schema.go`; use Event codec directly from Event tests; retain storage identity/fingerprint layer until disk-record redesign is ready. Then redesign disk records and recovery/replay/tests together.
-- Risk: storage redesign is breaking on-disk format; compatibility policy remains open. `docs/storage_disk.md` remains outdated.
+- Latest verified code commit: `6c9d2bda429ed5c91756c0584af5b4b7d66bffda`; CI run [44964000381](https://github.com/gunesis-game/pulsyflux-stream/actions/runs/44964000381) passed Ubuntu and Windows. Both ran non-mutating formatting, race-enabled tests with coverage, vet, and build.
+- CI coverage: Linux 84.6%; Windows 84.6%. The per-function reports were matching; no platform discrepancy identified.
+- Recent code work completed: Event payload codec ownership is in `event.go`; event tests use `encodeEventPayload`/`decodeEventPayload` directly; schema payload codec adapters are gone. The prior format-only fix changed a struct formatting line in `event_test.go`.
+- Current code still has schema fingerprints, UUID stream/channel identities, and version-2 disk records. This is intentional interim state while persistence is redesigned; the agreed architecture above remains the target.
+- Next task: design and implement the disk-record identity/metadata redesign coherently across `storage_disk.go`, storage integration, recovery/replay and tests. First inspect `docs/storage_disk.md` and current storage integration; settle migration/compatibility behavior before altering the persisted format. Replace fingerprint and UUID stream/channel fields with type-derived channel/stream identities, while retaining event UUIDs, sequence, creation timestamps, and redacted payload.
+- Risks/open decisions: changing persisted format is breaking; compatibility policy must be decided. `docs/storage_disk.md` needs reconciliation after implementation. No code changes are pending from this checkpoint; the next change is not started.
