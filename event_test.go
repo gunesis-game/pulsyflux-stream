@@ -50,7 +50,7 @@ func TestEventSerializationRedactsNestedSliceAndDoesNotMutateData(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	
+
 	value := payload{Users: []user{{Name: "Ada", Password: "secret"}}}
 	if err := event.SetData(value); err != nil {
 		t.Fatal(err)
@@ -68,7 +68,7 @@ func TestEventSerializationRedactsNestedSliceAndDoesNotMutateData(t *testing.T) 
 	}
 
 	var envelope struct {
-		Type string `json:"type"`
+		Type string          `json:"type"`
 		Data json.RawMessage `json:"data"`
 	}
 	if err := json.Unmarshal(raw, &envelope); err != nil {
@@ -89,7 +89,7 @@ func TestEventDeserializeRoundTripRedactedData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	
+
 	if err := event.SetData(payload{ID: "u1", Secret: "hidden"}); err != nil {
 		t.Fatal(err)
 	}
