@@ -21,6 +21,71 @@ func testDiskRecord(seq uint64) diskRecord {
 		Timestamp: time.Unix(1700000000, int64(seq)).UnixNano(), SchemaFingerprint: "schema", Type: "event", Payload: json.RawMessage(`{"x":1}`)}
 }
 
+func TestDiskRecordSizePreflightMatchesJSONEncoding(t *testing.T) {
+	payloads := []json.RawMessage{
+		json.RawMessage(\`{ "html" : "<>&", "items" : [1, 2, 3] }\`),
+		json.RawMessage(\`"line\nseparator"\`),
+		json.RawMessage(\`"\u2028 and \u2029"\`),
+		json.RawMessage(\`null\`),
+	}
+	for _, payload := range payloads {
+		record := testDiskRecord(1)
+		record.Payload = payload
+		want, err := json.Marshal(record)
+		if err != nil {
+			t.Fatal(err)
+		}
+		gotSize, err := diskRecordJSONSize(record, len(want))
+		if err != nil {
+			t.Fatalf("preflight rejected valid body %q: %v", payload, err)
+		}
+		if gotSize != len(want) {
+			t.Fatalf("preflight size=%d, json.Marshal size=%d for %q", gotSize, len(want), payload)
+		}
+		if _, err := diskRecordJSONSize(record, len(want)-1); err == nil {
+			t.Fatalf("preflight accepted body one byte over limit for %q", payload)
+		}
+		frame, err := encodeDiskRecord(record)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(frame[recordHeaderBytes:len(frame)-recordChecksumBytes], want) {
+			t.Fatalf("encoded version-1 JSON bytes changed for payload %q", payload)
+		}
+	}
+}
+
+func TestDiskRecordSizePreflightRejectsOversizedAndInvalidPayloads(t *testing.T) {
+	record := testDiskRecord(1)
+	record.Payload = json.RawMessage(\`"\` + strings.Repeat("x", 1024) + \`"\`)
+	if _, err := diskRecordJSONSize(record, 512); err == nil || !strings.Contains(err.Error(), "size limit") {
+		t.Fatalf("oversized payload error=%v, want size limit", err)
+	}
+
+	record.Payload = json.RawMessage(\`{"unterminated":\`)
+	if _, err := diskRecordJSONSize(record, maxRecordBytes); err == nil || !strings.Contains(err.Error(), "invalid JSON payload") {
+		t.Fatalf("invalid RawMessage error=%v", err)
+	}
+}
+
+func TestDiskRecordSizePreflightCountsEscapingAndCompaction(t *testing.T) {
+	record := testDiskRecord(1)
+	record.SchemaFingerprint = "<schema>&"
+	record.Type = "type\nwith\tcontrols"
+	record.Payload = json.RawMessage("  { \"value\" : \"<>&\" }  \n")
+	want, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := diskRecordJSONSize(record, maxRecordBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != len(want) {
+		t.Fatalf("preflight size=%d, json.Marshal size=%d", got, len(want))
+	}
+}
+
 func TestDiskRecordRoundTripChecksum(t *testing.T) {
 	r := testDiskRecord(1)
 	frame, err := encodeDiskRecord(r)

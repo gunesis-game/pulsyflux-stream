@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 )
@@ -43,6 +44,117 @@ type diskRecord struct {
 	Payload           json.RawMessage
 }
 
+// jsonStringEncodedSize returns the exact byte count encoding/json uses for a
+// string value, including quotes, HTML escaping, control escapes, and invalid
+// UTF-8 replacement. It does not allocate an encoded copy of the string.
+func jsonStringEncodedSize(value string) int {
+	size := 2 // surrounding quotes
+	for i := 0; i < len(value); {
+		c := value[i]
+		switch c {
+		case '"', '\\', '\b', '\f', '\n', '\r', '\t':
+			size += 2
+			i++
+			continue
+		case '<', '>', '&':
+			size += 6 // \u00xx
+			i++
+			continue
+		}
+		if c < utf8.RuneSelf {
+			if c < 0x20 {
+				size += 6
+			} else {
+				size++
+			}
+			i++
+			continue
+		}
+		r, width := utf8.DecodeRuneInString(value[i:])
+		if r == utf8.RuneError && width == 1 {
+			size += 6 // encoding/json emits \ufffd for each invalid byte
+			i++
+			continue
+		}
+		if r == '\u2028' || r == '\u2029' {
+			size += 6
+		} else {
+			size += width
+		}
+		i += width
+	}
+	return size
+}
+
+// compactRawMessageSize measures the exact output length of encoding/json's
+// RawMessage compaction and HTML escaping without allocating the compacted JSON.
+// json.Valid is checked by the caller, so quote/escape transitions are safe.
+func compactRawMessageSize(raw []byte, limit int) (int, error) {
+	if !json.Valid(raw) {
+		return 0, fmt.Errorf("stream: invalid JSON payload")
+	}
+	size := 0
+	inString, escaped := false, false
+	for _, c := range raw {
+		if inString {
+			size++
+			if escaped {
+				escaped = false
+				continue
+			}
+			switch c {
+			case '\\':
+				escaped = true
+			case '"':
+				inString = false
+			case '<', '>', '&':
+				size += 5 // one input byte becomes the six-byte \u00xx escape
+			}
+		} else {
+			switch c {
+			case ' ', '\t', '\n', '\r':
+				continue
+			}
+			size++
+			if c == '"' {
+				inString = true
+			}
+		}
+		if size > limit {
+			return 0, fmt.Errorf("stream: record exceeds size limit")
+		}
+	}
+	return size, nil
+}
+
+// diskRecordJSONSize preflights the exact JSON body size before encoding the
+// caller's potentially large RawMessage. The metadata template contains empty
+// strings and a tiny null payload; string and payload sizes are counted without
+// materializing escaped/compacted copies.
+func diskRecordJSONSize(r diskRecord, limit int) (int, error) {
+	metadata := r
+	metadata.SchemaFingerprint = ""
+	metadata.Type = ""
+	metadata.Payload = json.RawMessage("null")
+	template, err := json.Marshal(metadata)
+	if err != nil {
+		return 0, err
+	}
+	// Replace the two empty JSON strings and the four-byte null token with
+	// their exact encoded sizes.
+	baseSize := len(template) - 2 - 2 - len("null")
+	baseSize += jsonStringEncodedSize(r.SchemaFingerprint)
+	baseSize += jsonStringEncodedSize(r.Type)
+	if baseSize > limit {
+		return 0, fmt.Errorf("stream: record exceeds size limit")
+	}
+	payloadSize, err := compactRawMessageSize(r.Payload, limit-baseSize)
+	if err != nil {
+		return 0, err
+	}
+	return baseSize + payloadSize, nil
+}
+
 func encodeDiskRecord(r diskRecord) ([]byte, error) {
 	if r.Version == 0 {
 		r.Version = recordVersion
@@ -53,12 +165,16 @@ func encodeDiskRecord(r diskRecord) ([]byte, error) {
 	if r.EventID == uuid.Nil || r.StreamID == uuid.Nil || r.ChannelID == uuid.Nil || r.Sequence == 0 || r.Timestamp == 0 || r.SchemaFingerprint == "" || r.Type == "" || len(r.Payload) == 0 {
 		return nil, fmt.Errorf("%w: missing record field", errRecordCorrupt)
 	}
+	expectedBodySize, err := diskRecordJSONSize(r, maxRecordBytes)
+	if err != nil {
+		return nil, err
+	}
 	body, err := json.Marshal(r)
 	if err != nil {
 		return nil, err
 	}
-	if len(body) > maxRecordBytes {
-		return nil, fmt.Errorf("stream: record exceeds size limit")
+	if len(body) != expectedBodySize {
+		return nil, fmt.Errorf("stream: internal record size mismatch: measured %d, encoded %d", expectedBodySize, len(body))
 	}
 	frame := make([]byte, recordHeaderBytes+len(body)+recordChecksumBytes)
 	copy(frame[:4], recordMagic[:])

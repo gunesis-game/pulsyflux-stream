@@ -100,7 +100,9 @@ flowchart LR
 **Limits and validation**
 
 - `recordVersion` is currently `1`.
-- `maxRecordBytes` is 64 MiB and applies to the JSON body.
+- `maxRecordBytes` is 64 MiB and applies to the final encoded JSON body, after `json.RawMessage` whitespace compaction and HTML escaping.
+- The encoder preflights the exact JSON body size before marshaling the caller-provided payload. It validates the raw JSON and counts compaction/escaping without allocating an intermediate encoded payload; oversized bodies are rejected before the full JSON body or frame is allocated.
+- The preflight preserves Go `encoding/json` version-1 encoding semantics, including field order, string escaping, `RawMessage` compaction, and HTML escaping. The stored frame format and checksum are unchanged.
 - The decoder requires the frame length to match the declared body length exactly.
 - A complete frame with bad magic, invalid length, checksum mismatch, invalid JSON, unsupported version, or missing required fields is rejected.
 - Required record fields are version, event ID, stream ID, channel ID, sequence, timestamp, schema fingerprint, type, and payload.
