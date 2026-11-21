@@ -99,7 +99,6 @@ func (store *streamStore) removeChannel(id uuid.UUID) {
 		if key.ChannelID == id {
 			removed = append(removed, value.(interface{ Close() }))
 			delete(store.streams, key)
-			}
 		}
 	}
 	store.mu.Unlock()
