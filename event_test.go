@@ -6,34 +6,34 @@ import (
 	"testing"
 )
 
-func TestNewEventRejectsUnknownPolicyPath(t *testing.T) {
+func TestNewEventRejectsUnknownRedactionPolicyPath(t *testing.T) {
 	type payload struct {
 		Email string `json:"email"`
 	}
-	if _, err := NewEvent[payload](NewPolicy("emali")); err == nil {
-		t.Fatal("expected invalid policy path error")
+	if _, err := NewEvent[payload](NewRedactionRedactionPolicy("emali")); err == nil {
+		t.Fatal("expected invalid redactionPolicy path error")
 	}
 }
 
-func TestPolicyUsesJSONFieldNames(t *testing.T) {
+func TestRedactionPolicyUsesJSONFieldNames(t *testing.T) {
 	type payload struct {
 		AccessToken string `json:"access_token"`
 	}
-	if _, err := NewEvent[payload](NewPolicy("access_token")); err != nil {
+	if _, err := NewEvent[payload](NewRedactionRedactionPolicy("access_token")); err != nil {
 		t.Fatalf("JSON field path should be accepted: %v", err)
 	}
-	if _, err := NewEvent[payload](NewPolicy("AccessToken")); err == nil {
+	if _, err := NewEvent[payload](NewRedactionRedactionPolicy("AccessToken")); err == nil {
 		t.Fatal("Go field name should not match JSON-tagged field")
 	}
 }
 
-func TestPolicyRejectsEmptyAndDuplicatePaths(t *testing.T) {
+func TestRedactionPolicyRejectsEmptyAndDuplicatePaths(t *testing.T) {
 	type payload struct {
 		Value string `json:"value"`
 	}
-	for _, policy := range []Policy{NewPolicy(""), NewPolicy("value", "value"), NewPolicy("value..nested")} {
-		if _, err := NewEvent[payload](policy); err == nil {
-			t.Fatalf("expected policy validation failure for %#v", policy)
+	for _, redactionPolicy := range []RedactionPolicy{NewRedactionRedactionPolicy(""), NewRedactionRedactionPolicy("value", "value"), NewRedactionRedactionPolicy("value..nested")} {
+		if _, err := NewEvent[payload](redactionPolicy); err == nil {
+			t.Fatalf("expected redactionPolicy validation failure for %#v", redactionPolicy)
 		}
 	}
 }
@@ -46,7 +46,7 @@ func TestEventSerializationRedactsNestedSliceAndDoesNotMutateData(t *testing.T) 
 	type payload struct {
 		Users []user `json:"users"`
 	}
-	event, err := NewEvent[payload](NewPolicy("users.password"))
+	event, err := NewEvent[payload](NewRedactionRedactionPolicy("users.password"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,8 +84,8 @@ func TestEventDeserializeRoundTripRedactedData(t *testing.T) {
 		ID       string `json:"id"`
 		Secret   string `json:"secret"`
 	}
-	policy := NewPolicy("secret")
-	event, err := NewEvent[payload](policy)
+	redactionPolicy := NewRedactionRedactionPolicy("secret")
+	event, err := NewEvent[payload](redactionPolicy)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +98,7 @@ func TestEventDeserializeRoundTripRedactedData(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	restored, err := deserialize[payload](raw, policy)
+	restored, err := deserialize[payload](raw, redactionPolicy)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +124,7 @@ func TestSetDataRejectsNonJSONPayloadAndKeepsPreviousData(t *testing.T) {
 		Value string
 		Func  any
 	}
-	event, err := NewEvent[payload](NewPolicy())
+	event, err := NewEvent[payload](NewRedactionRedactionPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
