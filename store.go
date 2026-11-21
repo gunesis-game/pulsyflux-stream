@@ -64,7 +64,7 @@ func register[T any](channel *EventChannel, bufferSize int) (*Stream[T], error) 
 // Get returns the stream for event type T registered under channel's UUID.
 // It returns nil if the channel is nil, closed, or has no such stream.
 func Get[T any](channel *EventChannel) *Stream[T] {
-	if channel == nil || channel.ID == uuid.Nil {
+	if channel == nil || channel.id == uuid.Nil {
 		return nil
 	}
 
@@ -75,7 +75,7 @@ func Get[T any](channel *EventChannel) *Stream[T] {
 	}
 
 	key := streamKey{
-		ChannelID: channel.ID,
+		ChannelID: channel.id,
 		EventType: reflect.TypeOf((*T)(nil)).Elem(),
 	}
 
