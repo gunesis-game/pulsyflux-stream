@@ -191,6 +191,78 @@ func TestDiskWriterCloseFailureIsStable(t *testing.T) {
 	}
 }
 
+
+func TestDiskWriterRecoversAfterRotationSegmentCreationFailure(t *testing.T) {
+	dir := t.TempDir()
+	opts := diskWriterOptions{MaxSegmentBytes: 4096}
+	writer, err := openDiskWriter(dir, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	channelID, streamID := uuid.New(), uuid.New()
+	firstSequence, _, err := writer.Append(channelID, streamID, "schema", "event", time.Now(), []byte(`{"v":1}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstSequence != 1 {
+		t.Fatalf("first sequence=%d want=1", firstSequence)
+	}
+
+	// A directory at the next segment path makes exclusive file creation fail
+	// after rotation has flushed and closed the previous segment.
+	blockedPath := filepath.Join(dir, "segment-000002.pfs")
+	if err := os.Mkdir(blockedPath, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	writer.size = writer.maxBytes
+	if _, _, err := writer.Append(channelID, streamID, "schema", "event", time.Now(), []byte(`{"v":2}`)); err == nil {
+		t.Fatal("append succeeded despite next-segment creation failure")
+	}
+	if writer.file != nil || writer.buf != nil {
+		t.Fatal("writer retained an active file after rotation creation failed")
+	}
+	if err := writer.Close(); err == nil {
+		t.Fatal("Close did not retain rotation creation failure")
+	}
+
+	if err := os.Remove(blockedPath); err != nil {
+		t.Fatal(err)
+	}
+	writer, err = openDiskWriter(dir, opts)
+	if err != nil {
+		t.Fatalf("reopen after clearing segment path: %v", err)
+	}
+	secondSequence, _, err := writer.Append(channelID, streamID, "schema", "event", time.Now(), []byte(`{"v":2}`))
+	if err != nil {
+		t.Fatalf("append after recovery: %v", err)
+	}
+	if secondSequence != 2 {
+		t.Fatalf("recovered sequence=%d want=2", secondSequence)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reader, err := openDiskReader(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	for expected := uint64(1); expected <= 2; expected++ {
+		record, err := reader.Next()
+		if err != nil {
+			t.Fatalf("read sequence %d: %v", expected, err)
+		}
+		if record.Sequence != expected {
+			t.Fatalf("read sequence=%d want=%d", record.Sequence, expected)
+		}
+	}
+	if _, err := reader.Next(); !errors.Is(err, io.EOF) {
+		t.Fatalf("expected EOF after recovered append, got %v", err)
+	}
+}
+
 func TestDiskWriterSequenceTailRecoveryAndRollover(t *testing.T) {
 	dir := t.TempDir()
 	w, err := openDiskWriter(dir, diskWriterOptions{MaxSegmentBytes: 220})
