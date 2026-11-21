@@ -29,6 +29,7 @@ const (
 
 var recordMagic = [4]byte{'P', 'F', 'S', 'R'}
 var errRecordCorrupt = errors.New("stream: corrupt storage record")
+var errDirectorySyncUnsupported = errors.New("stream: SyncEachAppend requires durable directory sync, unsupported on this platform")
 
 type diskRecord struct {
 	Version           uint16
@@ -160,6 +161,11 @@ type diskWriter struct {
 }
 
 func openDiskWriter(dir string, opts diskWriterOptions) (*diskWriter, error) {
+	if opts.SyncEachAppend {
+		if err := checkDirectorySyncSupport(); err != nil {
+			return nil, err
+		}
+	}
 	if opts.MaxSegmentBytes <= 0 {
 		opts.MaxSegmentBytes = 64 << 20
 	}
@@ -278,6 +284,11 @@ func (w *diskWriter) newSegment() error {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o640)
 	if err != nil {
 		return err
+	}
+	if w.syncEachAppend {
+		if err := syncSegmentDirectory(w.dir); err != nil {
+			return errors.Join(err, f.Close())
+		}
 	}
 	w.file, w.buf, w.size = f, bufio.NewWriter(f), 0
 	return nil
