@@ -2,7 +2,7 @@ package stream
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json"\n\t"io"
 	"errors"
 	"os"
 	"path/filepath"
@@ -92,4 +92,27 @@ func TestDiskWriterRecoversSequenceAcrossEmptySegment(t *testing.T) {
 	if seq != 8 {
 		t.Fatalf("recovered sequence=%d want=8", seq)
 	}
+}
+
+func TestDiskReaderSequentialAcrossSegments(t *testing.T) {
+	dir := t.TempDir()
+	w, err := openDiskWriter(dir, diskWriterOptions{MaxSegmentBytes: 220})
+	if err != nil { t.Fatal(err) }
+	ch, st := uuid.New(), uuid.New()
+	for i := 1; i <= 4; i++ {
+		seq, _, err := w.Append(ch, st, "schema", "event", time.Now(), []byte(`{"payload":"large enough to cause a segment rollover"}`))
+		if err != nil { t.Fatal(err) }
+		if seq != uint64(i) { t.Fatalf("write sequence=%d want=%d", seq, i) }
+	}
+	if err := w.Close(); err != nil { t.Fatal(err) }
+
+	r, err := openDiskReader(dir)
+	if err != nil { t.Fatal(err) }
+	defer r.Close()
+	for expected := uint64(1); expected <= 4; expected++ {
+		record, err := r.Next()
+		if err != nil { t.Fatalf("read %d: %v", expected, err) }
+		if record.Sequence != expected { t.Fatalf("sequence=%d want=%d", record.Sequence, expected) }
+	}
+	if _, err := r.Next(); !errors.Is(err, io.EOF) { t.Fatalf("expected EOF, got %v", err) }
 }
