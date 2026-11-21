@@ -1,6 +1,6 @@
 # pulsyflux-stream
 
-A small, generic, concurrency-safe event stream for Go.
+A small, typed, concurrency-safe event stream for Go.
 
 ## Requirements
 
@@ -26,30 +26,16 @@ import (
 )
 
 type PlayerJoined struct {
-	PlayerID string
-}
-
-type PlayerLeft struct {
-	PlayerID string
+	PlayerID string `json:"player_id"`
 }
 
 func main() {
-	// An EventChannel identifies a logical group of related event streams.
 	channel := stream.NewEventChannel()
 	defer channel.Close()
 
 	joined, err := stream.New[PlayerJoined](channel, 16)
 	if err != nil {
 		log.Fatal(err)
-	}
-	left, err := stream.New[PlayerLeft](channel, 16)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// Get retrieves the stream for this event type from this channel.
-	if stream.Get[PlayerJoined](channel) != joined {
-		log.Fatal("expected the registered stream")
 	}
 
 	sub, err := joined.Subscribe(context.Background())
@@ -69,74 +55,61 @@ func main() {
 		log.Fatal(err)
 	}
 
-	event = <-sub.Events()
-	fmt.Printf("player joined: %s\n", event.Data().PlayerID)
-
-	_ = left // This channel can own other independently typed streams too.
+	received := <-sub.Events()
+	fmt.Printf("player joined: %s\\n", received.Data().PlayerID)
 }
 ```
 
 ## Event channels and streams
 
-- `NewEventChannel()` creates a logical event channel with a randomly generated UUID.
-- `NewEventChannelWithID(id)` reconstructs a channel using an existing non-zero UUID. Persist this UUID if the same logical channel must be identified again later (for example, by a future replay-capable store).
-- `New[T](channel, bufferSize)` creates and registers a typed stream in the
-  supplied channel. It returns an error for a nil or closed channel, an invalid
-  buffer size, or when that event type is already registered in the channel.
-- `Get[T](channel)` retrieves the stream for that event type from that channel.
-  It returns `nil` if the channel is nil or no stream has been registered.
-- A channel can own streams for many different event types. Each event type can
-  be registered only once per channel.
-- The in-memory registry keys streams by the composite `StreamKey{ChannelID, EventType}`. Different channel UUIDs can register the same event type without sharing a stream.
-- A channel UUID is a logical identity, not a storage location. The current registry is in-memory; a future persistent or distributed backend can use the same UUID without changing the channel identity model.
-- `EventChannel.Close()` closes every stream registered under that UUID and prevents further registrations through that channel instance. It is safe to call more than once. A new channel instance can be reconstructed with the same UUID after closure.
+- `NewEventChannel()` creates a logical grouping with a random UUID.
+- `NewEventChannelWithID(id)` reconstructs a grouping with a non-zero UUID.
+- `New[T](channel, bufferSize)` registers a typed stream in that grouping. It errors for nil/invalid/closed channels, non-positive buffer sizes, or duplicate registration of T within the same channel.
+- `Get[T](channel)` returns the registered stream or nil if unavailable.
+- A channel can own multiple event types. The same event type can be registered in different channel IDs without sharing a stream.
+- Channel identity is not storage: the registry is process-local and in-memory.
+- `EventChannel.Close()` closes its registered streams and prevents new registrations through that instance. It is idempotent. A new instance can reuse the UUID after closure.
 
-## Typed events and redaction policies
+## Events and redaction
 
-Events are created with an explicit redactionPolicy. RedactionPolicy paths use JSON field names (including JSON tags) and are validated against the payload type when the event is constructed. Use an empty redactionPolicy when no redaction is required.
+Every event must be constructed with a `RedactionPolicy`, even when no fields need redaction. Policies list excluded JSON field paths, using JSON tags rather than Go field names. Paths are validated against T when `NewEvent[T]` is called and checked again by `SetData`.
 
 ```go
-event, err := stream.NewEvent[PlayerJoined](stream.NewRedactionPolicy())
+redaction := stream.NewRedactionPolicy("password", "profile.email")
+event, err := stream.NewEvent[UserCreated](redaction)
 if err != nil {
-    log.Fatal(err)
+	log.Fatal(err)
 }
-if err := event.SetData(PlayerJoined{PlayerID: "player-42"}); err != nil {
-    log.Fatal(err)
-}
-if err := joined.Publish(event); err != nil {
-    log.Fatal(err)
+if err := event.SetData(user); err != nil {
+	log.Fatal(err)
 }
 ```
 
-Redaction is applied to the serialized copy of the payload; subscribers still receive the original typed data. Serialization and deserialization are package-private because they are persistence details. The in-memory stream registry currently does not provide durable storage.
+Redaction occurs during private serialization on a JSON copy; the live event and stream subscribers retain the original payload. The redacted payload is what serialization persists. Consequently, deserializing a redacted record restores the redacted data, not the original secrets. Serialization/deserialization are package-private and currently have no public persistence API.
 
-## Semantics
+Supported policy path traversal is limited to structs, pointers, and slices/arrays of structs. Map traversal and embedded-field flattening are not supported. Paths are exact JSON field names and are case-sensitive. A path must be resolvable; empty, duplicate, and malformed paths are rejected.
 
-- Each subscriber receives each published event value.
-- `Publish` is safe for concurrent callers and delivers to all current
-  subscribers.
-- Each subscriber has a bounded buffer configured by `New`.
-- If any subscriber buffer is full, `Publish` returns `ErrSlowSubscriber` and
-  delivers to **none** of the subscribers for that call. The caller can retry,
-  apply backpressure, or remove the slow subscriber.
+## Delivery semantics
+
+- Each active subscriber receives each successfully published event.
+- `Publish` is safe for concurrent callers and sends to all active subscribers.
+- Subscribers use bounded buffers set by `New`.
+- If any subscriber buffer is full, `Publish` returns `ErrSlowSubscriber` and delivers to none for that call; callers can retry or apply backpressure.
 - Publishing with no subscribers succeeds.
-- Each event timestamp is set at construction and remains internal to the package.
-- `Subscription.Close`, context cancellation, and `Stream.Close` are safe to
-  race. Closing a subscription unregisters it and closes its channel.
+- Event timestamps are set during construction and are package-private.
+- Subscription close, context cancellation, and stream close are concurrency-safe.
 - Publishing after stream shutdown returns `ErrClosed`.
-- `Subscribe` accepts a standard Go `context.Context` for subscription
-  cancellation; the `EventChannel` is a separate grouping and lifecycle type.
 
 ## Development
 
 ```sh
-go test -race ./...
+go test -race -cover ./...
 go vet ./...
 go build ./...
 ```
 
+CI runs formatting validation, race-enabled tests with coverage, vet, and build.
+
 ## Releases
 
-Push a semantic version tag such as `v1.0.0`. The release workflow runs tests,
-vet, and build before creating a GitHub Release for that tag. Go modules use the
-tag as the published version; no generated binary is required for consumers.
+Push a semantic version tag (for example, `v1.0.0`). The release workflow tests, vets, and builds before creating a GitHub Release. No generated binary is required for Go module consumers.
