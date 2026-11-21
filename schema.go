@@ -108,12 +108,12 @@ func schemaJSONFieldNameWithIgnore(field reflect.StructField) (string, bool) {
 
 // redactSchemaJSON applies JSON field exclusions to a serialized data copy.
 // It never mutates the caller's value and can be used by any schema adapter.
-func redactSchemaJSON(raw []byte, paths []string) ([]byte, error) {
+func redactSchemaJSON(raw []byte, policy schemaRedactionPolicy) ([]byte, error) {
 	var value any
 	if err := json.Unmarshal(raw, &value); err != nil {
 		return nil, fmt.Errorf("decode schema data for redaction: %w", err)
 	}
-	for _, path := range paths {
+	for _, path := range policy.exclude {
 		redactSchemaPath(value, strings.Split(path, "."))
 	}
 	redacted, err := json.Marshal(value)
