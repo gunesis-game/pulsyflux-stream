@@ -8,42 +8,42 @@ import (
 	"time"
 )
 
-// Policy defines JSON fields that must be removed from an event payload before
+// RedactionPolicy defines JSON fields that must be removed from an event payload before
 // the event is persisted. Paths use JSON field names.
-type Policy struct {
+type RedactionPolicy struct {
 	exclude []string
 }
 
-// NewPolicy constructs an immutable-by-convention redaction policy.
+// NewRedactionRedactionPolicy constructs an immutable-by-convention redaction redactionPolicy.
 // The exclusions are copied and cannot be modified by callers.
-func NewPolicy(exclude ...string) Policy {
-	return Policy{exclude: append([]string(nil), exclude...)}
+func NewRedactionRedactionPolicy(exclude ...string) RedactionPolicy {
+	return RedactionPolicy{exclude: append([]string(nil), exclude...)}
 }
 
 // Event is a typed event with metadata and a payload governed by a redaction
-// policy. Data is intentionally private so assignments go through SetData.
+// redactionPolicy. Data is intentionally private so assignments go through SetData.
 type Event[T any] struct {
 	time time.Time
 
 	data    T
 	dataSet bool
-	policy  Policy
+	redactionPolicy  RedactionPolicy
 }
 
-// NewEvent constructs an event and validates its policy against T.
-func NewEvent[T any](policy Policy) (Event[T], error) {
-	policy.exclude = append([]string(nil), policy.exclude...)
-	event := Event[T]{time: time.Now(), policy: policy}
+// NewEvent constructs an event and validates its redactionPolicy against T.
+func NewEvent[T any](redactionPolicy RedactionPolicy) (Event[T], error) {
+	redactionPolicy.exclude = append([]string(nil), redactionPolicy.exclude...)
+	event := Event[T]{time: time.Now(), redactionPolicy: redactionPolicy}
 	if err := event.validate(); err != nil {
-		return Event[T]{}, fmt.Errorf("invalid event policy: %w", err)
+		return Event[T]{}, fmt.Errorf("invalid event redactionPolicy: %w", err)
 	}
 	return event, nil
 }
 
-// SetData validates the event policy and payload serialization before assigning.
+// SetData validates the event redactionPolicy and payload serialization before assigning.
 func (e *Event[T]) SetData(data T) error {
 	if err := e.validate(); err != nil {
-		return fmt.Errorf("invalid event policy: %w", err)
+		return fmt.Errorf("invalid event redactionPolicy: %w", err)
 	}
 	if _, err := json.Marshal(data); err != nil {
 		return fmt.Errorf("invalid event data: %w", err)
@@ -77,7 +77,7 @@ type eventEnvelope struct {
 }
 
 // serialize returns the redacted persisted representation. It never modifies
-// the live payload or policy.
+// the live payload or redactionPolicy.
 func (e *Event[T]) serialize() ([]byte, error) {
 	if !e.dataSet {
 		return nil, ErrUnsetEventData
@@ -91,7 +91,7 @@ func (e *Event[T]) serialize() ([]byte, error) {
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		return nil, fmt.Errorf("decode event data for redaction: %w", err)
 	}
-	for _, path := range e.policy.exclude {
+	for _, path := range e.redactionPolicy.exclude {
 		redactPath(payload, strings.Split(path, "."))
 	}
 
@@ -103,12 +103,12 @@ func (e *Event[T]) serialize() ([]byte, error) {
 	return json.Marshal(eventEnvelope{Type: eventTypeName[T](), Data: redacted, Time: e.time})
 }
 
-// deserialize rebuilds an event using the caller-provided policy. Policy is
+// deserialize rebuilds an event using the caller-provided redactionPolicy. RedactionPolicy is
 // intentionally not stored in the serialized envelope.
-func deserialize[T any](raw []byte, policy Policy) (Event[T], error) {
-	event, err := NewEvent[T](policy)
+func deserialize[T any](raw []byte, redactionPolicy RedactionPolicy) (Event[T], error) {
+	event, err := NewEvent[T](redactionPolicy)
 	if err != nil {
-		return Event[T]{}, fmt.Errorf("invalid event policy: %w", err)
+		return Event[T]{}, fmt.Errorf("invalid event redactionPolicy: %w", err)
 	}
 
 	var envelope eventEnvelope
@@ -136,9 +136,9 @@ func deserialize[T any](raw []byte, policy Policy) (Event[T], error) {
 // validate checks the redaction paths against the payload type T.
 func (e *Event[T]) validate() error {
 	t := reflect.TypeOf((*T)(nil)).Elem()
-	seen := make(map[string]struct{}, len(e.policy.exclude))
+	seen := make(map[string]struct{}, len(e.redactionPolicy.exclude))
 
-	for _, rawPath := range e.policy.exclude {
+	for _, rawPath := range e.redactionPolicy.exclude {
 		path := strings.TrimSpace(rawPath)
 		if path == "" {
 			return fmt.Errorf("empty exclusion path")
