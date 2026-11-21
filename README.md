@@ -85,7 +85,7 @@ if err := event.SetData(user); err != nil {
 }
 ```
 
-Redaction occurs during private serialization on a JSON copy; the live event and stream subscribers retain the original payload. The redacted payload is what serialization persists. Consequently, deserializing a redacted record restores the redacted data, not the original secrets. Serialization/deserialization are package-private and currently have no public persistence API.
+Redaction is implemented by the generic schema layer and applied by the event schema adapter during private serialization on a JSON copy; the live event and stream subscribers retain the original payload. The redacted payload is what serialization persists. Consequently, deserializing a redacted record restores the redacted data, not the original secrets. Serialization/deserialization are package-private and currently have no public persistence API.
 
 Supported policy path traversal is limited to structs, pointers, and slices/arrays of structs. Map traversal and embedded-field flattening are not supported. Paths are exact JSON field names and are case-sensitive. A path must be resolvable; empty, duplicate, and malformed paths are rejected.
 
