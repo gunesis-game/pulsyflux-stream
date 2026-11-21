@@ -90,27 +90,20 @@ Do not introduce a public storage API until the internal storage contract and du
 - Windows research found no documented, supported standard-user Win32/native API sequence for flushing directory namespace metadata with the required crash-durability guarantee. Do not introduce an undocumented directory-handle flush or infer durability from an API call merely returning success. Revisit strict durability through a separately designed architecture or a clearly scoped, user-approved operational requirement.
 - The current cross-platform behavior is intentionally uniform and fail-closed; strict per-append durability remains unavailable rather than being silently weakened.
 
-## Current handoff — schema-aware event codec centralized; replay next (2026-11-21)
+## Current handoff — schema redaction policy ownership corrected; replay design next (2026-11-21)
 
 ### Repository and verified checkpoint
 - Repository: `gunesis-game/pulsyflux-stream`; work directly on `main`, no branches.
-- Exact code SHA tested: `234250085332716554c6e42dc243f93f39133228`.
-- CI run [44904355897](https://github.com/gunesis-game/pulsyflux-stream/actions/runs/44904355897), run #184, completed successfully for that exact SHA. Cleanup and both Linux/Windows jobs passed formatting, race-enabled tests, coverage report generation, artifact upload, vet, and build.
-- Aggregate coverage: Linux **84.0%**, Windows **84.0%**. All 55 per-function entries match. Coverage profiles have the same 469 statement blocks; one `stream.go` publish-send block has execution counts 807 vs. 806, but it is covered on both platforms. This is an expected count variation, not a coverage gap.
-- CI formatting verification is non-mutating and prints offending filenames plus the `gofmt -d` diff on failure.
-- This handoff update is documentation-only and does not trigger CI. No local Go test execution is claimed. The codec refactor does not alter disk framing or persisted record layout; `docs/storage_disk.md` remains applicable and unchanged.
-
-### Completed codec ownership change
-- `Event[T]` remains the typed domain model in `event.go`: payload, timestamp, redaction policy, payload assignment, validation, and access.
-- `schema.go` owns JSON encodability validation, the private event envelope, event type-name derivation, redaction transformation, schema-aware serialization, event-layer fingerprint derivation, and decoding with persisted fingerprint/type validation.
-- `encodeEventSchema` returns the opaque encoded envelope plus its schema fingerprint and type name for internal persistence. `decodeEventSchema` requires both persisted schema fingerprint and persisted type name, validates those against the registered `T`, and independently checks the envelope type before reconstructing the typed event.
-- Redaction policy is intentionally supplied by the registered typed stream during decode; it is not persisted in the envelope. Persisted redacted data cannot restore excluded values.
-- Tests exercise the schema codec directly, preserve redaction and timestamp round-trip behavior, reject mismatched fingerprints and persisted type names, and retain rejection of non-JSON payloads before assignment.
-- Storage remains opaque and does not own payload types or redaction rules. No public serializer, deserializer, fingerprint, UUID, or storage-record API was added.
+- Current code SHA: `ed1911b87813bbe79ea31fedf698a68e268c62bf`.
+- CI run [44908089974](https://github.com/gunesis-game/pulsyflux-stream/actions/runs/44908089974), run #191, completed successfully for that exact SHA. Linux and Windows jobs both passed formatting, race-enabled tests, coverage report generation and artifact upload, vet, and build.
+- Aggregate statement coverage: Linux **83.9%**, Windows **83.9%**. The two coverage profile files are byte-for-byte identical (470 lines including the mode header); per-function coverage therefore matches exactly. No cross-platform coverage discrepancy was found.
+- The redaction policy ownership correction moves the single `RedactionPolicy` definition and `NewRedactionPolicy` constructor into `schema.go`; `event.go` consumes the schema-owned policy. Generic schema redaction accepts exclusion paths and remains independent of Event-specific types.
+- A test verifies that `NewRedactionPolicy` copies the caller's exclusion slice. No public API expansion was intended.
+- This handoff update is documentation-only and does not trigger CI. No local Go test execution is claimed. No disk framing or storage behavior changed; `docs/storage_disk.md` remains applicable and unchanged.
 
 ### Next task: design channel/stream replay delivery
 - Replay is a package-level channel/stream capability, not direct storage access for consumers. Do not expose storage records, segment paths, internal event IDs, fingerprints, or event-level lookup APIs.
-- Replay must publish reconstructed events to existing subscribers through their normal subscription channels, as agreed. Do not introduce a separate replay-only consumer channel.
+- Replay must publish reconstructed events to existing subscribers through their normal subscription channels. Do not introduce a separate replay-only consumer channel.
 - Before implementation, inspect current storage lifecycle/recorder integration and design an ordering boundary that prevents replay/live interleaving gaps or duplicates. Prefer a persisted high-water sequence boundary: replay records through the boundary, then deliver buffered live events after it, preserving sequence order.
 - Define channel replay (all persisted events in the channel) and typed stream replay (events for the selected registered stream). Respect channel/stream instance identity, schema fingerprint, persisted type name, event type, current redaction policy, segment rotation, and restart sequence continuity.
 - Keep the append-only log authoritative. Start with sequential scan/filtering; do not add an index unless measured replay performance establishes a need.
