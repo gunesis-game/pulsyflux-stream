@@ -9,7 +9,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -278,70 +277,68 @@ func TestDiskWriterRecoversAfterRotationSegmentCreationFailure(t *testing.T) {
 	}
 }
 
-func TestDiskWriterSyncEachAppendFlushesAcrossRotation(t *testing.T) {
-	dir := t.TempDir()
-	writer, err := openDiskWriter(dir, diskWriterOptions{
+func TestDiskWriterSyncEachAppendRejectedBeforeFilesystemMutation(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "storage", "disk")
+
+	_, err := openDiskWriter(dir, diskWriterOptions{
 		MaxSegmentBytes: 220,
 		SyncEachAppend:  true,
 	})
-	if runtime.GOOS == "windows" {
-		if !errors.Is(err, errDirectorySyncUnsupported) {
-			t.Fatalf("SyncEachAppend open error = %v, want explicit unsupported error", err)
-		}
-		return
+	if !errors.Is(err, errDirectorySyncUnsupported) {
+		t.Fatalf("SyncEachAppend open error = %v, want %v", err, errDirectorySyncUnsupported)
 	}
+	if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("storage directory exists after rejected open: stat error = %v", err)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("rejected open created filesystem entries: %v", entries)
+	}
+}
+
+func TestDiskWriterExplicitSyncFlushesFile(t *testing.T) {
+	dir := t.TempDir()
+	writer, err := openDiskWriter(dir, diskWriterOptions{MaxSegmentBytes: 4096})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	channelID, streamID := uuid.New(), uuid.New()
-	for expected := uint64(1); expected <= 4; expected++ {
-		sequence, _, err := writer.Append(channelID, streamID, "schema", "event", time.Now(),
-			[]byte(`{"payload":"large enough to force segment rotation"}`))
-		if err != nil {
-			t.Fatalf("append %d: %v", expected, err)
-		}
-		if sequence != expected {
-			t.Fatalf("sequence=%d want=%d", sequence, expected)
-		}
-
-		activePath := filepath.Join(dir, fmt.Sprintf("segment-%06d.pfs", writer.segment))
-		info, err := os.Stat(activePath)
-		if err != nil {
-			t.Fatalf("stat active segment after append %d: %v", expected, err)
-		}
-		if info.Size() == 0 {
-			t.Fatalf("active segment %q was not flushed after append %d", activePath, expected)
-		}
-	}
-
-	segments, err := diskSegments(dir)
+	sequence, _, err := writer.Append(uuid.New(), uuid.New(), "schema", "event", time.Now(), []byte(`{"v":1}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(segments) < 2 {
-		t.Fatalf("expected rotation with SyncEachAppend, found %d segment(s)", len(segments))
+	if err := writer.Sync(); err != nil {
+		t.Fatalf("explicit file Sync: %v", err)
 	}
 
-	// The reader must see every acknowledged append before the writer closes.
+	path := filepath.Join(dir, "segment-000001.pfs")
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Size() == 0 {
+		t.Fatal("explicit Sync left the segment file empty")
+	}
+
 	reader, err := openDiskReader(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer reader.Close()
-	for expected := uint64(1); expected <= 4; expected++ {
-		record, err := reader.Next()
-		if err != nil {
-			t.Fatalf("read sequence %d before writer close: %v", expected, err)
-		}
-		if record.Sequence != expected {
-			t.Fatalf("sequence=%d want=%d", record.Sequence, expected)
-		}
+	record, readErr := reader.Next()
+	closeErr := reader.Close()
+	if readErr != nil {
+		t.Fatalf("read synced record: %v", readErr)
 	}
-	if _, err := reader.Next(); !errors.Is(err, io.EOF) {
-		t.Fatalf("expected EOF before writer close, got %v", err)
+	if closeErr != nil {
+		t.Fatalf("close reader: %v", closeErr)
 	}
-
+	if record.Sequence != sequence {
+		t.Fatalf("read sequence=%d want=%d", record.Sequence, sequence)
+	}
 	if err := writer.Close(); err != nil {
 		t.Fatal(err)
 	}

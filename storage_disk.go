@@ -29,7 +29,7 @@ const (
 
 var recordMagic = [4]byte{'P', 'F', 'S', 'R'}
 var errRecordCorrupt = errors.New("stream: corrupt storage record")
-var errDirectorySyncUnsupported = errors.New("stream: SyncEachAppend requires durable directory sync, unsupported on this platform")
+var errDirectorySyncUnsupported = errors.New("stream: SyncEachAppend requires durable directory sync, which is not currently supported")
 
 type diskRecord struct {
 	Version           uint16
@@ -149,7 +149,6 @@ type diskWriter struct {
 	mu             sync.Mutex
 	dir            string
 	maxBytes       int64
-	syncEachAppend bool
 	file           *os.File
 	buf            *bufio.Writer
 	segment        uint64
@@ -162,9 +161,7 @@ type diskWriter struct {
 
 func openDiskWriter(dir string, opts diskWriterOptions) (*diskWriter, error) {
 	if opts.SyncEachAppend {
-		if err := checkDirectorySyncSupport(); err != nil {
-			return nil, err
-		}
+		return nil, errDirectorySyncUnsupported
 	}
 	if opts.MaxSegmentBytes <= 0 {
 		opts.MaxSegmentBytes = 64 << 20
@@ -172,7 +169,7 @@ func openDiskWriter(dir string, opts diskWriterOptions) (*diskWriter, error) {
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return nil, err
 	}
-	w := &diskWriter{dir: dir, maxBytes: opts.MaxSegmentBytes, syncEachAppend: opts.SyncEachAppend}
+	w := &diskWriter{dir: dir, maxBytes: opts.MaxSegmentBytes}
 	paths, err := diskSegments(dir)
 	if err != nil {
 		return nil, err
@@ -231,12 +228,6 @@ func openDiskWriter(dir string, opts diskWriterOptions) (*diskWriter, error) {
 			w.file, w.buf, w.size = f, bufio.NewWriter(f), valid
 		}
 	}
-	if w.syncEachAppend {
-		if err := syncSegmentDirectory(w.dir); err != nil {
-			_ = w.Close()
-			return nil, err
-		}
-	}
 	return w, nil
 }
 
@@ -291,11 +282,6 @@ func (w *diskWriter) newSegment() error {
 	if err != nil {
 		return err
 	}
-	if w.syncEachAppend {
-		if err := syncSegmentDirectory(w.dir); err != nil {
-			return errors.Join(err, f.Close())
-		}
-	}
 	w.file, w.buf, w.size = f, bufio.NewWriter(f), 0
 	return nil
 }
@@ -324,11 +310,6 @@ func (w *diskWriter) Append(channelID, streamID uuid.UUID, schema, typeName stri
 	}
 	w.size += int64(len(frame))
 	w.nextSequence = r.Sequence
-	if w.syncEachAppend {
-		if err := w.syncLocked(); err != nil {
-			return 0, uuid.Nil, w.failLocked(err)
-		}
-	}
 	return r.Sequence, r.EventID, nil
 }
 

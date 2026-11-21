@@ -234,7 +234,7 @@ flowchart TD
 - Rotation happens only when the current segment is non-empty and the next frame would exceed `maxBytes`.
 - Therefore, a single frame larger than the configured segment threshold can occupy an otherwise-empty segment. The record-body limit still applies.
 - The configured default segment threshold is 64 MiB when `MaxSegmentBytes` is not positive.
-- The default is buffered writing. `SyncEachAppend` adds a flush and file sync after each append. It also requires durable segment-directory entries: Linux syncs the parent directory after segment creation (and when opening an existing durable writer); Windows returns `errDirectorySyncUnsupported` from `openDiskWriter` before accepting writes. It never silently degrades to file-only syncing.
+- The default is buffered writing. `SyncEachAppend` is currently unavailable on every platform. `openDiskWriter` rejects it with `errDirectorySyncUnsupported` before creating the storage directory or opening/creating segment files. No platform silently degrades to file-only syncing.
 
 ### 5.3 What rotation actually does
 
@@ -245,7 +245,6 @@ sequenceDiagram
     participant B as bufio.Writer
     participant F1 as Current segment
     participant F2 as New segment
-    participant D as Segment directory
 
     A->>W: frame would exceed maxBytes
     W->>B: Flush()
@@ -253,7 +252,6 @@ sequenceDiagram
     W->>F1: Close()
     W->>W: segment++
     W->>F2: Create new segment (exclusive)
-    W->>D: Sync directory entry (Linux, SyncEachAppend)
     W-->>A: rotation complete
     A->>B: Write(new frame)
 ```
@@ -266,7 +264,7 @@ The writer distinguishes buffering from filesystem synchronization:
 
 - **Append:** writes to the `bufio.Writer`; without `SyncEachAppend`, this may not immediately reach the OS file.
 - **Flush:** drains the Go buffer to the file.
-- **Sync:** flushes first, then calls `os.File.Sync()`. Segment-directory entries are synced at creation/reopen when `SyncEachAppend` is enabled.
+- **Sync:** flushes first, then calls `os.File.Sync()` for the active segment. It does not sync directory entries and is distinct from the unavailable strict per-append mode.
 - **Close:** flushes if there is no prior sticky failure, closes the active file, stores the joined result, and returns that same result on every later `Close` call.
 
 Errors from append I/O, explicit `Flush`, explicit `Sync`, and append-time rotation are made sticky through `failLocked`. A flush failure during `Close` is also retained in the close result. Subsequent appends return the stored failure instead of pretending the writer can continue; repeated `Close` calls return the original close result.
@@ -288,12 +286,12 @@ stateDiagram-v2
 | Operation | Buffer flush | File sync | Failure behavior |
 |---|---:|---:|---|
 | `Append` (default) | No | No | A write error becomes sticky |
-| `Append` with `SyncEachAppend` (Linux) | Yes | Yes | File sync plus prior directory-entry sync; I/O errors become sticky |
+| `Append` with `SyncEachAppend` (Linux and Windows) | N/A | N/A | Rejected at writer open with `errDirectorySyncUnsupported` before filesystem mutation |
 | `Flush` | Yes | No | Error becomes sticky |
 | `Sync` | Yes | Yes | File sync; error becomes sticky |
 | `Close` | Yes, unless already failed | No explicit sync | Returns and retains joined failure/flush/close errors; repeated calls return the same result |
 
-A successful `Flush` is not the same guarantee as a successful `Sync`: flush drains the userspace buffer, while sync requests filesystem persistence. On Linux, the strict `SyncEachAppend` contract additionally syncs the segment directory after creating a segment, so a successful append does not rely on an unsynced new segment name. The storage directory itself must already be durably provisioned. On Windows, no supported and verified directory-entry flush is implemented; enabling `SyncEachAppend` therefore fails at writer open with `errDirectorySyncUnsupported`, including when the directory already contains segments. The Windows behavior is intentionally fail-closed, not a weaker durability mode.
+A successful `Flush` is not the same guarantee as a successful `Sync`: flush drains the userspace buffer, while sync requests filesystem persistence for the active file. Neither operation syncs the containing directory entry. Because strict `SyncEachAppend` requires both file and directory durability, the option is rejected on Linux and Windows with `errDirectorySyncUnsupported` before the storage path is created or any segment is opened. The implementation makes no strict per-append crash-durability claim on either platform.
 
 ## 7. Reader lifecycle and fail-closed behavior
 
@@ -391,11 +389,14 @@ These are the rules that the implementation and its tests are protecting.
 
 ## 12. Cross-platform durability contract
 
-The disk backend supports Linux and Windows. `SyncEachAppend` has a strict contract: a successful append must have flushed and synced the record file, and the directory entry for the active segment must have been durably synced before that append can be acknowledged.
+The disk backend supports Linux and Windows for ordinary buffered writing and explicit file synchronization. The intended `SyncEachAppend` guarantee is stricter: a successful append must have flushed and synced the record file and durably persisted the directory entry for the active segment before acknowledging the append.
 
-- **Linux:** `syncSegmentDirectory` opens the segment directory and calls `os.File.Sync`. It runs after each newly created segment and when reopening an existing writer with `SyncEachAppend` enabled. Directory-sync errors fail writer creation or the append that triggered rotation; append-time failures are sticky.
-- **Windows:** `checkDirectorySyncSupport` returns `errDirectorySyncUnsupported`. `openDiskWriter` rejects `SyncEachAppend` before creating/opening segment files. This avoids claiming durability that the implementation cannot establish. Ordinary buffered writing and explicit file-only `Sync` remain separate from the strict `SyncEachAppend` guarantee.
-- **Other operating systems:** strict `SyncEachAppend` is also rejected unless a platform implementation is added and tested.
-- **Provisioning boundary:** the storage directory must itself be durably provisioned by the caller. The Linux helper persists segment entries within that directory; it does not recursively sync newly created ancestor directories.
+A reliable, supported, tested directory-entry sync implementation is not currently available for both supported operating systems. Therefore `SyncEachAppend` is deliberately rejected on **both Linux and Windows** with `errDirectorySyncUnsupported`, before `MkdirAll`, file opening, or segment creation. This keeps the option's behavior identical and prevents a platform from claiming a guarantee that another platform cannot provide.
 
-The platform-specific implementation lives in `storage_disk_sync_linux.go`, `storage_disk_sync_windows.go`, and the unsupported-platform fallback. CI runs formatting, tests, vet, and build on Linux and Windows; the race detector runs on Linux.
+- **Linux:** no directory-sync implementation is enabled. The Linux build rejects strict mode exactly like Windows.
+- **Windows:** no directory-sync implementation is enabled. The Windows build rejects strict mode exactly like Linux.
+- **Other operating systems:** strict mode remains unsupported.
+- **Ordinary writes:** buffered Append, Flush, explicit file Sync, rotation, and recovery remain available on Linux and Windows. Explicit file Sync does not make a newly created segment directory entry durable and must not be described as equivalent to `SyncEachAppend`.
+- **Provisioning boundary:** the caller remains responsible for durably provisioning the storage directory hierarchy. This does not remove the need to persist segment entries created by the writer; that is why strict per-append mode remains unavailable.
+
+The former platform-specific directory-sync helpers have been removed rather than retaining an unverified Linux-only durability path. Reintroduce strict mode only when both Linux and Windows have documented, reliable implementations and focused tests that prove the required ordering and fail-closed behavior. CI runs formatting, race-enabled tests, coverage reporting, vet, and build on both operating systems.
