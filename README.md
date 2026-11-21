@@ -25,15 +25,17 @@ import (
 	stream "github.com/gunesis-game/pulsyflux-stream"
 )
 
+type PlayerEventFamily struct{}
+
 type PlayerJoined struct {
 	PlayerID string `json:"player_id"`
 }
 
 func main() {
-	channel := stream.NewEventChannel()
+	channel := stream.NewEventChannel[PlayerEventFamily]()
 	defer channel.Close()
 
-	joined, err := stream.New[PlayerJoined](channel, 16)
+	joined, err := stream.New[PlayerEventFamily, PlayerJoined](channel, 16)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -62,12 +64,12 @@ func main() {
 
 ## Event channels and streams
 
-- `NewEventChannel()` creates a logical grouping with a private random identity.
-- `New[T](channel, bufferSize)` registers a typed stream in that grouping. It errors for nil/invalid/closed channels, non-positive buffer sizes, or duplicate registration of T within the same channel.
-- `Get[T](channel)` returns the registered stream or nil if unavailable.
-- A channel can own multiple event types. `EventChannel` is intentionally non-generic; `New[T]` and `Get[T]` are generic registry functions so one channel can contain many differently typed streams.
+- `NewEventChannel[TStream]()` creates a logical grouping with a private random identity.
+- `New[TStream, TEvent](channel, bufferSize)` registers a typed stream in that grouping. It errors for nil/invalid/closed channels, non-positive buffer sizes, or duplicate registration of T within the same channel.
+- `Get[TStream, TEvent](channel)` returns the registered stream or nil if unavailable.
+- A channel is `EventChannel[TStream]` and can own multiple differently typed streams: `Stream[TStream, TEvent1]`, `Stream[TStream, TEvent2]`, and so on. All streams in one channel share `TStream`; each stream has its own `TEvent`.
 - Channel UUIDs are private implementation identities. Consumers cannot inspect, supply, or reconstruct them.
-- Channel identity is not storage: the registry is process-local and in-memory.
+- Channel identity is not storage: stream registration is owned by the channel instance and is process-local.
 - `EventChannel.Close()` closes its registered streams and prevents new registrations through that instance. It is idempotent.
 
 ## Events and redaction

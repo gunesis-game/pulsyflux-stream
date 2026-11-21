@@ -1,28 +1,32 @@
 package stream
 
 import (
+	"reflect"
 	"sync"
 
 	"github.com/google/uuid"
 )
 
-// EventChannel is a logical grouping identity for related typed streams.
-// Its private UUID scopes the channel's in-memory typed stream registrations.
-type EventChannel struct {
+// EventChannel is a logical grouping identity for a family of related streams.
+// Every stream registered with a channel shares its TStream type context.
+type EventChannel[TStream any] struct {
 	id uuid.UUID
 
-	mu     sync.RWMutex
-	closed bool
+	mu      sync.RWMutex
+	streams map[reflect.Type]any
+	closed  bool
 }
 
-// NewEventChannel creates a new logical event channel with a random UUID.
-func NewEventChannel() *EventChannel {
-	return &EventChannel{id: uuid.New()}
+// NewEventChannel creates a new logical event channel with a private random UUID.
+func NewEventChannel[TStream any]() *EventChannel[TStream] {
+	return &EventChannel[TStream]{
+		id:      uuid.New(),
+		streams: make(map[reflect.Type]any),
+	}
 }
 
-// Close closes every stream registered under this channel UUID. The channel
-// private identity remains unchanged for the lifetime of this handle.
-func (channel *EventChannel) Close() {
+// Close closes every stream owned by this channel. It is idempotent.
+func (channel *EventChannel[TStream]) Close() {
 	if channel == nil {
 		return
 	}
@@ -33,7 +37,63 @@ func (channel *EventChannel) Close() {
 		return
 	}
 	channel.closed = true
+
+	streams := make([]interface{ Close() }, 0, len(channel.streams))
+	for _, value := range channel.streams {
+		streams = append(streams, value.(interface{ Close() }))
+	}
+	clear(channel.streams)
 	channel.mu.Unlock()
 
-	defaultStore.removeChannel(channel.id)
+	for _, stream := range streams {
+		stream.Close()
+	}
+}
+
+func register[TStream, TEvent any](channel *EventChannel[TStream], bufferSize int) (*Stream[TStream, TEvent], error) {
+	if channel == nil {
+		return nil, ErrNilEventChannel
+	}
+	if channel.id == uuid.Nil {
+		return nil, ErrNilEventChannelID
+	}
+
+	eventType := reflect.TypeOf((*TEvent)(nil)).Elem()
+
+	channel.mu.Lock()
+	defer channel.mu.Unlock()
+	if channel.closed {
+		return nil, ErrClosed
+	}
+	if _, exists := channel.streams[eventType]; exists {
+		return nil, ErrDuplicateStream
+	}
+
+	stream := &Stream[TStream, TEvent]{
+		subs:       make(map[uint64]*subscriber[TEvent]),
+		bufferSize: bufferSize,
+	}
+	channel.streams[eventType] = stream
+	return stream, nil
+}
+
+// Get returns the stream for TEvent registered in channel, or nil if absent.
+func Get[TStream, TEvent any](channel *EventChannel[TStream]) *Stream[TStream, TEvent] {
+	if channel == nil || channel.id == uuid.Nil {
+		return nil
+	}
+
+	eventType := reflect.TypeOf((*TEvent)(nil)).Elem()
+	channel.mu.RLock()
+	defer channel.mu.RUnlock()
+	if channel.closed {
+		return nil
+	}
+
+	value, exists := channel.streams[eventType]
+	if !exists {
+		return nil
+	}
+	stream, _ := value.(*Stream[TStream, TEvent])
+	return stream
 }

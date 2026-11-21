@@ -22,10 +22,12 @@ func newTestEvent[T any](t *testing.T, data T) Event[T] {
 	return event
 }
 
-func newTestStream[T any](t *testing.T, bufferSize int) *Stream[T] {
+type testStreamContext struct{}
+
+func newTestStream[T any](t *testing.T, bufferSize int) *Stream[testStreamContext, T] {
 	t.Helper()
-	channel := NewEventChannel()
-	s, err := New[T](channel, bufferSize)
+	channel := NewEventChannel[testStreamContext]()
+	s, err := New[testStreamContext, T](channel, bufferSize)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,30 +38,39 @@ func newTestStream[T any](t *testing.T, bufferSize int) *Stream[T] {
 func TestEventChannelRegistersTypedStreams(t *testing.T) {
 	type firstEvent struct{ Value string }
 	type secondEvent struct{ Value int }
+	type thirdEvent struct{ Value bool }
 
-	channel := NewEventChannel()
+	channel := NewEventChannel[testStreamContext]()
 	defer channel.Close()
 
-	first, err := New[firstEvent](channel, 7)
+	first, err := New[testStreamContext, firstEvent](channel, 7)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := New[secondEvent](channel, 13)
+	second, err := New[testStreamContext, secondEvent](channel, 13)
+	if err != nil {
+		t.Fatal(err)
+	}
+	third, err := New[testStreamContext, thirdEvent](channel, 19)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if got := Get[firstEvent](channel); got != first {
+	if got := Get[testStreamContext, firstEvent](channel); got != first {
 		t.Fatal("Get did not return the first registered stream")
 	}
-	if got := Get[secondEvent](channel); got != second {
+	if got := Get[testStreamContext, secondEvent](channel); got != second {
 		t.Fatal("Get did not return the second registered stream")
 	}
-	if first.bufferSize != 7 || second.bufferSize != 13 {
+	if got := Get[testStreamContext, thirdEvent](channel); got != third {
+		t.Fatal("Get did not return the third registered stream")
+	}
+	if first.bufferSize != 7 || second.bufferSize != 13 || third.bufferSize != 19 {
 		t.Fatalf(
 			"unexpected buffer sizes: first=%d second=%d",
 			first.bufferSize,
 			second.bufferSize,
+			third.bufferSize,
 		)
 	}
 }
@@ -67,23 +78,23 @@ func TestEventChannelRegistersTypedStreams(t *testing.T) {
 func TestEventChannelsAreIsolated(t *testing.T) {
 	type isolatedEvent struct{ Value string }
 
-	firstChannel := NewEventChannel()
-	secondChannel := NewEventChannel()
+	firstChannel := NewEventChannel[testStreamContext]()
+	secondChannel := NewEventChannel[testStreamContext]()
 	defer firstChannel.Close()
 	defer secondChannel.Close()
 
-	first, err := New[isolatedEvent](firstChannel, 4)
+	first, err := New[testStreamContext, isolatedEvent](firstChannel, 4)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := New[isolatedEvent](secondChannel, 4)
+	second, err := New[testStreamContext, isolatedEvent](secondChannel, 4)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if first == second {
 		t.Fatal("different channels shared the same stream")
 	}
-	if Get[isolatedEvent](firstChannel) != first || Get[isolatedEvent](secondChannel) != second {
+	if Get[testStreamContext, isolatedEvent](firstChannel) != first || Get[testStreamContext, isolatedEvent](secondChannel) != second {
 		t.Fatal("Get returned a stream from the wrong channel")
 	}
 
@@ -113,48 +124,48 @@ func TestEventChannelsAreIsolated(t *testing.T) {
 
 func TestDuplicateStreamRegistrationReturnsError(t *testing.T) {
 	type duplicateEvent struct{}
-	channel := NewEventChannel()
+	channel := NewEventChannel[testStreamContext]()
 	defer channel.Close()
 
-	if _, err := New[duplicateEvent](channel, 1); err != nil {
+	if _, err := New[testStreamContext, duplicateEvent](channel, 1); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := New[duplicateEvent](channel, 2); !errors.Is(err, ErrDuplicateStream) {
+	if _, err := New[testStreamContext, duplicateEvent](channel, 2); !errors.Is(err, ErrDuplicateStream) {
 		t.Fatalf("got %v, want ErrDuplicateStream", err)
 	}
 }
 
 func TestNewValidatesChannelAndBuffer(t *testing.T) {
-	if _, err := New[int](nil, 1); !errors.Is(err, ErrNilEventChannel) {
+	if _, err := New[testStreamContext, int](nil, 1); !errors.Is(err, ErrNilEventChannel) {
 		t.Fatalf("got %v, want ErrNilEventChannel", err)
 	}
-	channel := NewEventChannel()
+	channel := NewEventChannel[testStreamContext]()
 	defer channel.Close()
-	if _, err := New[int](channel, 0); !errors.Is(err, ErrInvalidBufferSize) {
+	if _, err := New[testStreamContext, int](channel, 0); !errors.Is(err, ErrInvalidBufferSize) {
 		t.Fatalf("got %v, want ErrInvalidBufferSize", err)
 	}
 }
 
 func TestGetReturnsNilBeforeNew(t *testing.T) {
 	type neverCreatedEvent struct{}
-	channel := NewEventChannel()
+	channel := NewEventChannel[testStreamContext]()
 	defer channel.Close()
 
-	if got := Get[neverCreatedEvent](channel); got != nil {
+	if got := Get[testStreamContext, neverCreatedEvent](channel); got != nil {
 		t.Fatalf("Get returned %#v, want nil", got)
 	}
-	if got := Get[int](nil); got != nil {
+	if got := Get[testStreamContext, int](nil); got != nil {
 		t.Fatalf("Get with nil channel returned %#v, want nil", got)
 	}
 }
 
 func TestEventChannelCloseClosesOwnedStreams(t *testing.T) {
-	channel := NewEventChannel()
-	first, err := New[int](channel, 1)
+	channel := NewEventChannel[testStreamContext]()
+	first, err := New[testStreamContext, int](channel, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := New[string](channel, 1)
+	second, err := New[testStreamContext, string](channel, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +193,7 @@ func TestEventChannelCloseClosesOwnedStreams(t *testing.T) {
 	if _, ok := <-secondSub.Events(); ok {
 		t.Fatal("second subscription channel remained open")
 	}
-	if _, err := New[bool](channel, 1); !errors.Is(err, ErrClosed) {
+	if _, err := New[testStreamContext, bool](channel, 1); !errors.Is(err, ErrClosed) {
 		t.Fatalf("New after channel close: got %v, want ErrClosed", err)
 	}
 }
@@ -212,7 +223,7 @@ func TestPublishToMultipleSubscribers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, sub := range []*Subscription[string]{a, b} {
+	for _, sub := range []*Subscription[testStreamContext, string]{a, b} {
 		select {
 		case got := <-sub.Events():
 			if got.Data() != want.Data() {
@@ -336,8 +347,8 @@ func TestConcurrentPublishAndSubscribe(t *testing.T) {
 }
 
 func TestEventChannelIdentityIsPrivateAndUnique(t *testing.T) {
-	first := NewEventChannel()
-	second := NewEventChannel()
+	first := NewEventChannel[testStreamContext]()
+	second := NewEventChannel[testStreamContext]()
 	defer first.Close()
 	defer second.Close()
 

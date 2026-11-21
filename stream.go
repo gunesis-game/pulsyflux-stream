@@ -21,7 +21,7 @@ var (
 	ErrNilEventChannelID = errors.New("stream: invalid internal event channel identity")
 	// ErrInvalidBufferSize is returned when New receives a buffer size less than one.
 	ErrInvalidBufferSize = errors.New("stream: buffer size must be greater than zero")
-	// ErrDuplicateStream is returned when an EventChannel already owns a stream
+	// ErrDuplicateStream is returned when an EventChannel[TStream] already owns a stream
 	// for the requested event type.
 	ErrDuplicateStream = errors.New("stream: event type already registered in channel")
 	// ErrUnsetEventData is returned when publishing an event without SetData.
@@ -35,15 +35,15 @@ type subscriber[T any] struct {
 }
 
 // Subscription receives events published to a Stream.
-type Subscription[T any] struct {
-	C      <-chan Event[T]
-	stream *Stream[T]
+type Subscription[TStream, TEvent any] struct {
+	C      <-chan Event[TEvent]
+	stream *Stream[TStream, TEvent]
 	id     uint64
-	sub    *subscriber[T]
+	sub    *subscriber[TEvent]
 }
 
 // Events returns the read-only event channel.
-func (s *Subscription[T]) Events() <-chan Event[T] {
+func (s *Subscription[TStream, TEvent]) Events() <-chan Event[TEvent] {
 	if s == nil {
 		return nil
 	}
@@ -52,7 +52,7 @@ func (s *Subscription[T]) Events() <-chan Event[T] {
 
 // Close unregisters the subscription and closes its event channel.
 // It is safe to call Close more than once.
-func (s *Subscription[T]) Close() {
+func (s *Subscription[TStream, TEvent]) Close() {
 	if s == nil || s.stream == nil {
 		return
 	}
@@ -62,19 +62,19 @@ func (s *Subscription[T]) Close() {
 // Stream distributes each published event to every active subscriber.
 // A full subscriber buffer rejects the entire publish instead of dropping
 // events or blocking publishers.
-type Stream[T any] struct {
+type Stream[TStream, TEvent any] struct {
 	mu         sync.RWMutex
 	nextID     uint64
-	subs       map[uint64]*subscriber[T]
+	subs       map[uint64]*subscriber[TEvent]
 	bufferSize int
 	closed     bool
 }
 
 // New creates a stream with bufferSize slots per subscriber and registers it
-// in channel for event type T. Each event type may be registered only once in
-// a given EventChannel. Different EventChannels own independent streams.
+// in channel for event type TEvent. Each event type may be registered only once
+// in a given EventChannel[TStream]. Different channels own independent streams.
 // bufferSize must be greater than zero.
-func New[T any](channel *EventChannel, bufferSize int) (*Stream[T], error) {
+func New[TStream, TEvent any](channel *EventChannel[TStream], bufferSize int) (*Stream[TStream, TEvent], error) {
 	if channel == nil {
 		return nil, ErrNilEventChannel
 	}
@@ -82,18 +82,18 @@ func New[T any](channel *EventChannel, bufferSize int) (*Stream[T], error) {
 		return nil, ErrInvalidBufferSize
 	}
 
-	return register[T](channel, bufferSize)
+	return register[TStream, TEvent](channel, bufferSize)
 }
 
 // Subscribe registers a subscriber. Its channel closes when ctx is cancelled,
 // the subscription is closed, or the stream is closed. A nil context is
 // treated as context.Background().
-func (s *Stream[T]) Subscribe(ctx context.Context) (*Subscription[T], error) {
+func (s *Stream[TStream, TEvent]) Subscribe(ctx context.Context) (*Subscription[TStream, TEvent], error) {
 	if nilContext(ctx) {
 		ctx = context.Background()
 	}
-	sub := &subscriber[T]{
-		ch:   make(chan Event[T], s.bufferSize),
+	sub := &subscriber[TEvent]{
+		ch:   make(chan Event[TEvent], s.bufferSize),
 		done: make(chan struct{}),
 	}
 
@@ -102,14 +102,14 @@ func (s *Stream[T]) Subscribe(ctx context.Context) (*Subscription[T], error) {
 		s.mu.Unlock()
 		close(sub.ch)
 		close(sub.done)
-		return &Subscription[T]{C: sub.ch}, ErrClosed
+		return &Subscription[TStream, TEvent]{C: sub.ch}, ErrClosed
 	}
 	s.nextID++
 	id := s.nextID
 	s.subs[id] = sub
 	s.mu.Unlock()
 
-	result := &Subscription[T]{
+	result := &Subscription[TStream, TEvent]{
 		C:      sub.ch,
 		stream: s,
 		id:     id,
@@ -134,7 +134,7 @@ func nilContext(ctx context.Context) bool {
 // Publish sends event to every active subscriber. Event timestamps are set
 // during construction and are internal to Event. With no subscribers, Publish
 // succeeds.
-func (s *Stream[T]) Publish(event Event[T]) error {
+func (s *Stream[TStream, TEvent]) Publish(event Event[TEvent]) error {
 	// Serialize publishers: the buffer preflight and sends must be one
 	// critical section, otherwise concurrent publishers can overfill a
 	// subscriber channel after both observe spare capacity.
@@ -165,7 +165,7 @@ func (s *Stream[T]) Publish(event Event[T]) error {
 }
 
 // Close closes the stream and all subscriber channels. It is idempotent.
-func (s *Stream[T]) Close() {
+func (s *Stream[TStream, TEvent]) Close() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -182,7 +182,7 @@ func (s *Stream[T]) Close() {
 	}
 }
 
-func (s *Stream[T]) unsubscribe(id uint64) {
+func (s *Stream[TStream, TEvent]) unsubscribe(id uint64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
