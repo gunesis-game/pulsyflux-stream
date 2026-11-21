@@ -68,7 +68,7 @@ Do not introduce a public storage API until the internal storage contract and du
 
 ### Current branch and checkpoint
 - Continue directly on `main` in `gunesis-game/pulsyflux-stream`; do not create a branch unless the user asks.
-- Latest verified GitHub commit from this session's inspection: `f401b3a69fd4e4fb9a17cce666925e11b3f9bcba` (`fix: correct malformed io test import`). Confirm HEAD and CI afresh; prior chat statements about run #127 passing may be unreliable.
+- At the start of the 2026-11-21 continuation, `main` was at `bd52f6d03ca68f88513defa260f9b6f1908a657d`. The storage hardening commits are recorded in the follow-on implementation checkpoint below. Confirm HEAD and CI afresh.
 - Earlier commits in this storage slice include `d1cb667` (multi-segment reader), `7fc4fb4` (reader tests), and subsequent test import corrections. Verify actual tree contents, not only commit messages.
 - Prior attempts to add reader tests introduced malformed imports (escaped newline and `io""`) and multiple corrective commits. Inspect `storage_disk_test.go` carefully and ensure formatting/imports are actually valid.
 
@@ -97,3 +97,12 @@ Do not introduce a public storage API until the internal storage contract and du
 - Redact before persistence; never imply excluded values can be recovered.
 - Incomplete trailing writes may be recovered only under explicit frame-boundary rules; middle corruption must fail, not be skipped.
 - Keep this handoff actionable and factual; confirm claims from the live repo in the next session.
+
+
+### Follow-on implementation checkpoint (2026-11-21)
+- Committed directly to `main`: `3e26b78` (incremental reader and sticky writer I/O failure handling), `ccae62b` (reader corruption and segment-name tests), `292e2f5` (reject missing segment numbers), and `ed250cf` (gap tests).
+- Reader now decodes one frame per `Next`, holds only the active segment file, closes segments at EOF and on terminal errors, and rejects incomplete tails, complete-frame corruption, and non-increasing sequence values across all segment boundaries.
+- Shared segment discovery validates canonical `segment-%06d.pfs` names and requires a contiguous sequence beginning at segment 1. This is appropriate while storage is append-only and no pruning/compaction exists; revisit deliberately if retention is later introduced.
+- Writer I/O failures become sticky: after a failed append/flush/sync/rotation, later writes fail rather than continuing from uncertain on-disk state.
+- No index work was started. Reader reliability remains unverified until the complete CI run passes.
+- Verification limitation during this session: the available GitHub workflow-run lookup only returns pull-request-triggered runs; commit combined-status lookup returned no statuses for the new push commits. A local checkout could not be cloned because the execution environment could not resolve github.com. Do not report CI green from these empty results; obtain the push-triggered Actions run and confirm formatting, race tests/coverage, vet, and build before indexing.
