@@ -24,8 +24,26 @@ const (
 // the requested logical layer. It is private storage metadata, not an instance ID.
 func schemaFingerprint(t reflect.Type, layer schemaLayer) string {
 	descriptor := canonicalTypeDescriptor(t)
-	identity := fmt.Sprintf("%s:%s:%s", schemaFingerprintVersion, layer, descriptor)
-	sum := sha256.Sum256([]byte(identity))
+	dataFingerprint := hashSchema(schemaFingerprintVersion + ":data:" + descriptor)
+	switch layer {
+	case schemaData:
+		return dataFingerprint
+	case schemaEvent:
+		return hashSchema(schemaFingerprintVersion + ":event:" + dataFingerprint)
+	case schemaStream:
+		eventFingerprint := hashSchema(schemaFingerprintVersion + ":event:" + dataFingerprint)
+		return hashSchema(schemaFingerprintVersion + ":stream:" + eventFingerprint)
+	case schemaChannel:
+		eventFingerprint := hashSchema(schemaFingerprintVersion + ":event:" + dataFingerprint)
+		streamFingerprint := hashSchema(schemaFingerprintVersion + ":stream:" + eventFingerprint)
+		return hashSchema(schemaFingerprintVersion + ":channel:" + streamFingerprint)
+	default:
+		return hashSchema(schemaFingerprintVersion + ":unknown-layer:" + string(layer) + ":" + dataFingerprint)
+	}
+}
+
+func hashSchema(value string) string {
+	sum := sha256.Sum256([]byte(value))
 	return hex.EncodeToString(sum[:])
 }
 
@@ -89,7 +107,7 @@ func writeTypeDescriptor(b *strings.Builder, t reflect.Type, seen map[reflect.Ty
 			}
 			fields = append(fields, field)
 		}
-		sort.Slice(fields, func(i, j int) bool {
+		sort.SliceStable(fields, func(i, j int) bool {
 			return schemaJSONFieldName(fields[i]) < schemaJSONFieldName(fields[j])
 		})
 		b.WriteString("fields[")
