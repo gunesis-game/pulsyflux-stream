@@ -21,8 +21,8 @@ func TestSchemaFingerprintChangesWithStructure(t *testing.T) {
 		ID string `json:"id"`
 	}
 	type changed struct {
-		ID   string `json:"id"`
-		Age  int    `json:"age"`
+		ID  string `json:"id"`
+		Age int    `json:"age"`
 	}
 
 	if schemaFingerprint(reflect.TypeOf(original{}), schemaData) == schemaFingerprint(reflect.TypeOf(changed{}), schemaData) {
@@ -80,7 +80,7 @@ func TestSchemaFingerprintLayersAreDistinctAndNested(t *testing.T) {
 func TestSchemaFingerprintHandlesRecursiveTypes(t *testing.T) {
 	type node struct {
 		Value string `json:"value"`
-		Next *node  `json:"next,omitempty"`
+		Next  *node `json:"next,omitempty"`
 	}
 	first := schemaFingerprint(reflect.TypeOf(node{}), schemaData)
 	second := schemaFingerprint(reflect.TypeOf(node{}), schemaData)
