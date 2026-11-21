@@ -26,8 +26,9 @@ type Event[T any] struct {
 	Name string    `json:"name"`
 	Time time.Time `json:"time"`
 
-	data   T
-	policy Policy
+	data    T
+	dataSet bool
+	policy  Policy
 }
 
 // NewEvent constructs an event and validates its policy against T.
@@ -49,6 +50,7 @@ func (e *Event[T]) SetData(data T) error {
 		return fmt.Errorf("invalid event data: %w", err)
 	}
 	e.data = data
+	e.dataSet = true
 	return nil
 }
 
@@ -67,6 +69,9 @@ type eventEnvelope struct {
 // serialize returns the redacted persisted representation. It never modifies
 // the live payload or policy.
 func (e *Event[T]) serialize() ([]byte, error) {
+	if !e.dataSet {
+		return nil, ErrUnsetEventData
+	}
 	raw, err := json.Marshal(e.data)
 	if err != nil {
 		return nil, fmt.Errorf("marshal event data: %w", err)
