@@ -67,49 +67,64 @@ Do not introduce a public storage API until the internal storage contract and du
 - Do not invent gaps to fill a handoff. Separate verified facts, hypotheses, recommendations, and decisions requiring user input.
 
 ## Mandatory session-handoff hygiene
+
 - `steering.md` is the durable source of truth for current work, not an append-only chat transcript.
 - Keep **one current authoritative handoff** for the active task. Update it in place after each iteration; do not append a new section for every completed step.
-- **When a hand-off/task is successfully resolved and verified, remove its completed hand-off section and obsolete next steps.** Preserve only durable architecture decisions, constraints, and lessons that still affect future work. Do not retain stale checkpoints, superseded instructions, old CI status cautions, or completed work lists.
-- A failed CI attempt may be summarized in the current handoff while its correction is pending. Once corrected and verified, remove the resolved failure narrative unless it teaches a lasting rule; encode that rule in the general instructions instead.
+- **When a hand-off/task is successfully resolved and verified, remove its completed hand-off section and obsolete next steps.** Do not preserve a completed handoff as history.
+- Before removing a resolved handoff, classify the durable knowledge it contains:
+  - Put lasting AI workflow instructions, architectural guardrails, and recurring implementation lessons into the appropriate directive-oriented section of `steering.md`.
+  - Put substantial technical design, architecture, format, lifecycle, or operational knowledge in the appropriate document under `./docs`; update an existing canonical document where one exists rather than creating duplicates.
+  - Keep only concise, generally applicable instructions in `steering.md`; do not turn it into a design-history archive or duplicate detailed documentation.
+- A failed CI attempt may be summarized in the current handoff while its correction is pending. Once corrected and verified, remove the resolved failure narrative unless it teaches a lasting rule; encode that rule in the general instructions or relevant `./docs` document.
 - The current handoff must state: repository/branch; exact current HEAD; exact code SHA and CI run tested; final CI result and Linux/Windows coverage comparison; changes made; post-CI analysis; remaining confirmed gaps/risks and unresolved decisions; next task with files/components, prerequisites, tests, and acceptance criteria; whether `docs/storage_disk.md` matches the implementation.
 - If work is interrupted, record the exact stopping point, pending checks, uncommitted/unpushed state, and safest next action. Never describe uncommitted work as pushed or unverified work as tested.
 - Keep this file directive-oriented and concise. Do not duplicate README walkthroughs or retain resolved session narratives.
 
-## Storage architecture documentation
-- `docs/storage_disk.md` is the canonical architecture guide for disk storage, including its Mermaid diagrams.
-- Whenever storage code changes behavior, data structures, framing/encoding, segment naming/lifecycle, recovery, durability/failure handling, reader behavior, or invariants, update `docs/storage_disk.md` in the **same code commit**.
-- Update relevant diagrams, component/source maps, and invariants; do not merely append a note. Cross-check every claim against final source and tests.
-- Label deferred behavior and limitations clearly. Never document proposed behavior as implemented.
-- For unrelated changes, do not edit the architecture guide. Markdown-only updates do not trigger CI; paired Go + Markdown storage changes must trigger normal CI.
-
-## Current storage durability status
-
-- `SyncEachAppend` is deliberately rejected on **both Linux and Windows** with `errDirectorySyncUnsupported`, before the storage directory or segment files are created. The former platform-specific directory-sync helpers were removed.
-- Ordinary buffered append, flush, explicit active-file `Sync()`, segment rotation, and recovery remain available on Linux and Windows. Explicit file sync does not guarantee persistence of the segment's directory entry; never describe it as strict per-append crash durability.
-- Do not re-enable `SyncEachAppend` until both platforms have reliable, documented, tested directory-entry durability implementations and the same contract is verified by CI.
-- Windows research found no documented, supported standard-user Win32/native API sequence for flushing directory namespace metadata with the required crash-durability guarantee. Do not introduce an undocumented directory-handle flush or infer durability from an API call merely returning success. Revisit strict durability through a separately designed architecture or a clearly scoped, user-approved operational requirement.
-- The current cross-platform behavior is intentionally uniform and fail-closed; strict per-append durability remains unavailable rather than being silently weakened.
-
-## Current handoff — schema redaction policy ownership corrected; replay design next (2026-11-21)
+## Current handoff — generic schema extensions, redaction fingerprints, and channel-wide replay design (2026-11-21)
 
 ### Repository and verified checkpoint
 - Repository: `gunesis-game/pulsyflux-stream`; work directly on `main`, no branches.
-- Current code SHA: `ed1911b87813bbe79ea31fedf698a68e268c62bf`.
-- CI run [44908089974](https://github.com/gunesis-game/pulsyflux-stream/actions/runs/44908089974), run #191, completed successfully for that exact SHA. Linux and Windows jobs both passed formatting, race-enabled tests, coverage report generation and artifact upload, vet, and build.
-- Aggregate statement coverage: Linux **83.9%**, Windows **83.9%**. The two coverage profile files are byte-for-byte identical (470 lines including the mode header); per-function coverage therefore matches exactly. No cross-platform coverage discrepancy was found.
-- The redaction policy ownership correction moves the single `RedactionPolicy` definition and `NewRedactionPolicy` constructor into `schema.go`; `event.go` consumes the schema-owned policy. Generic schema redaction accepts exclusion paths and remains independent of Event-specific types.
-- A test verifies that `NewRedactionPolicy` copies the caller's exclusion slice. No public API expansion was intended.
-- This handoff update is documentation-only and does not trigger CI. No local Go test execution is claimed. No disk framing or storage behavior changed; `docs/storage_disk.md` remains applicable and unchanged.
+- Current HEAD before this handoff edit: `da9e144f828a8495a83162d9bd1925cc511bd31e`.
+- Last code SHA: `ed1911b87813bbe79ea31fedf698a68e268c62bf`; CI run [44908089974](https://github.com/gunesis-game/pulsyflux-stream/actions/runs/44908089974), run #191, passed Linux and Windows.
+- That run reported 83.9% aggregate statement coverage on both platforms; coverage profiles and per-function coverage were identical. The handoff edit is documentation-only and does not trigger CI.
+- No implementation of the newly agreed generic schema/fingerprint/replay architecture has been made. No local Go test execution is claimed.
+- `docs/storage_disk.md` still describes the current single-schema-fingerprint disk record and current private writer/reader; it does not yet describe the proposed multi-fingerprint record format. It remains accurate for the current implementation, not the agreed future design.
 
-### Next task: design channel/stream replay delivery
-- Replay is a package-level channel/stream capability, not direct storage access for consumers. Do not expose storage records, segment paths, internal event IDs, fingerprints, or event-level lookup APIs.
-- Replay must publish reconstructed events to existing subscribers through their normal subscription channels. Do not introduce a separate replay-only consumer channel.
-- Before implementation, inspect current storage lifecycle/recorder integration and design an ordering boundary that prevents replay/live interleaving gaps or duplicates. Prefer a persisted high-water sequence boundary: replay records through the boundary, then deliver buffered live events after it, preserving sequence order.
-- Define channel replay (all persisted events in the channel) and typed stream replay (events for the selected registered stream). Respect channel/stream instance identity, schema fingerprint, persisted type name, event type, current redaction policy, segment rotation, and restart sequence continuity.
-- Keep the append-only log authoritative. Start with sequential scan/filtering; do not add an index unless measured replay performance establishes a need.
-- Before coding, specify lifecycle/concurrency behavior for Subscribe, Publish, Close, slow subscribers, recorder errors, and replay errors. Add tests for replay/live races, no duplicates or gaps, channel-vs-stream filtering, ordering across rotations/restarts, schema mismatch, persisted type mismatch, redaction, and Windows/Linux parity.
-- Preserve the existing live Publish atomicity guarantee and all public event/stream/channel APIs except an explicitly agreed replay entry point. Do not re-record replayed events by the same recorder by default.
+### Agreed architecture — requirements, not yet implemented
 
-### Durable constraints
-- `SyncEachAppend` remains rejected on both Linux and Windows until documented, reliable directory-entry durability exists and is tested identically on both platforms.
-- Do not implement Find/Seek, SQL, distributed infrastructure, segment pruning, or public storage APIs without a concrete requirement and agreed contract.
+#### Shared schema contract and type extensions
+- `schema.go` owns one generic schema contract and reusable mechanisms. `event_schema.go`, `stream_schema.go`, and `channel_schema.go` extend that contract with only type-specific schema information and behaviour; they must not duplicate facilities already supplied centrally.
+- The schema model covers `Event[TData]`, `Stream[TEvent]`, and `EventChannel[TStream]`. The current source has a non-generic `EventChannel`; reconcile this explicitly as part of the planned generic channel change rather than silently treating current code as already compliant.
+- Redaction is part of this shared schema model. The central layer owns common policy representation, validation, redaction mechanics, and fingerprint derivation; type-specific extensions declare how policy applies to their respective schemas.
+- Each of the three schema layers has both a **base schema fingerprint** (before redaction) and an **effective schema fingerprint** (after the applicable redaction policy). Redaction can change the effective schema fingerprint. Dependency composition must ensure changes to a nested schema or its effective redaction are reflected by dependent Stream and EventChannel fingerprints.
+- The six identities (base/effective for Event, Stream, and EventChannel) must be available to the private disk record/storage validation path. Do not collapse them into one fingerprint or assume a combined fingerprint makes the individual identities unnecessary.
+- Fingerprints identify schema definitions, not runtime instances. Preserve private instance identity boundaries and do not expose fingerprints or internal UUIDs through consumer APIs.
+- Persisted payloads must be redacted before disk append. Fingerprints identify the schema/redaction view; they do not independently prove that redaction was correctly applied.
+
+#### Recording, ordering, and replay
+- A successful `Stream.Publish()` includes recording as part of the successful publish path. Accepted live events receive their persisted sequence at the same ordering boundary.
+- `EventChannel` is a logical scope, not a publish/subscribe endpoint. Publish and subscribe remain at individual Stream level.
+- Channel-level replay is orchestration across streams registered to the channel. It initiates delivery through each stream's existing subscribers; it is not a separate channel subscription, channel delivery buffer, or alternate publish endpoint.
+- One channel-wide sequence defines historical order across all streams. Stream replay filters that history while preserving the selected stream's relative order. Channel replay scans the global sequence and dispatches each record to its matching stream in that order. Never replay streams independently and merge their results.
+- The sequence is assigned at the channel-level ordering point. Replay dispatch preserves cross-stream order; independently consumed subscriber channels/goroutines do not guarantee application processing order across streams.
+- Replay must not be re-recorded by the same recorder by default. Preserve existing live Publish atomicity and fail-closed storage/replay behaviour.
+
+### Confirmed gaps and unresolved decisions
+- Current `schema.go` has structural layer fingerprints but no base/effective distinction or redaction-aware effective fingerprint contract.
+- Current `event_schema.go` computes only an Event fingerprint and owns event-envelope encoding/decoding. No `stream_schema.go` or `channel_schema.go` exists.
+- Current `diskRecord` in `storage_disk.go` stores one `SchemaFingerprint`, not six layer/base-effective identities. Record format/version and validation need a deliberate change.
+- Current `EventChannel` in `channel.go` is non-generic. The agreed `EventChannel[TStream]` model requires a source/API design change.
+- The disk writer assigns sequence under its own writer mutex and is not integrated with Stream Publish or a channel-wide ordering coordinator.
+- Persistent storage location/ownership and writer lifecycle per logical channel remain unresolved. Do not invent a path, public configuration API, or implicit global storage directory. Resolve this design before wiring recording into Publish.
+- Current disk writer buffers successful appends by default; do not claim crash durability. `SyncEachAppend` remains rejected on Linux and Windows until the documented cross-platform directory-entry durability requirement is met.
+- No replay/recording implementation has been added. `docs/storage_disk.md` must be updated in the same code commit as any disk record/framing/reader/writer behaviour change.
+
+### Next task and acceptance criteria
+1. Design the generic schema contract in `schema.go`: schema descriptors/composition, base/effective fingerprint derivation, and shared redaction semantics. Keep type-specific extensions thin and non-duplicative.
+2. Design `Event[TData]`, `Stream[TEvent]`, and generic `EventChannel[TStream]` schema extensions, including dependency composition and compatibility checks.
+3. Before implementing recorder integration, resolve private persistent storage location/ownership and the channel-level ordering/lifecycle boundary.
+4. Extend private disk record metadata to carry and validate all six fingerprints; version the record format deliberately and update `docs/storage_disk.md` in the same code commit.
+5. Add focused tests for base fingerprint stability, effective fingerprint changes under redaction, dependency fingerprint propagation, schema mismatch at each layer, serialization/deserialization, and redaction before persistence.
+6. For recording/replay, test channel-wide sequence assignment under concurrent publishes, channel replay ordering across streams and segment rotations/restarts, stream filtering, replay/live handoff without gaps or duplicates, replay non-recording, slow subscribers, close/cancellation, and fail-closed recorder/replay errors.
+7. Run the configured Linux and Windows CI on the exact code SHA. Compare aggregate and per-function coverage and inspect profile artifacts for unexplained differences. Update this handoff after analysis; when the task is fully resolved, move lasting instructions/design knowledge into the correct steering sections or `./docs`, then remove the completed handoff section.
+
