@@ -42,8 +42,6 @@ func validateEventData[T any](data T) error {
 	return nil
 }
 
-// encodeEventSchema owns schema-aware event serialization and returns the
-// schema fingerprint and type identity that storage persists as metadata.
 // redactPath removes an exclusion path from the JSON-shaped payload copy.
 func redactPath(value any, parts []string) {
 	if len(parts) == 0 {
@@ -66,6 +64,8 @@ func redactPath(value any, parts []string) {
 	}
 }
 
+// encodeEventSchema owns schema-aware event serialization and returns the
+// schema fingerprint and type identity that storage persists as metadata.
 func encodeEventSchema[T any](event *Event[T]) ([]byte, string, string, error) {
 	if !event.dataSet {
 		return nil, "", "", ErrUnsetEventData
