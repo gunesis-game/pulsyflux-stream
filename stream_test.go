@@ -211,10 +211,10 @@ func TestPublishToMultipleSubscribers(t *testing.T) {
 	for _, sub := range []*Subscription[string]{a, b} {
 		select {
 		case got := <-sub.Events():
-			if got.Name != want.Name || got.Data() != want.Data() {
+			if got.TypeName() != want.TypeName() || got.Data() != want.Data() {
 				t.Fatalf("got %#v, want %#v", got, want)
 			}
-			if got.Time.IsZero() {
+			if got.time.IsZero() {
 				t.Fatal("Publish did not set event timestamp")
 			}
 		case <-time.After(time.Second):
