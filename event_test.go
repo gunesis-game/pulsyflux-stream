@@ -118,12 +118,12 @@ func TestEventDeserializeRoundTripRedactedData(t *testing.T) {
 	if err := event.SetData(payload{ID: "u1", Secret: "hidden"}); err != nil {
 		t.Fatal(err)
 	}
-	raw, fingerprint, _, err := encodeEventSchema(&event)
+	raw, fingerprint, typeName, err := encodeEventSchema(&event)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	restored, err := decodeEventSchema[payload](raw, fingerprint, redactionPolicy)
+	restored, err := decodeEventSchema[payload](raw, fingerprint, typeName, redactionPolicy)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +179,27 @@ func TestEventDeserializeRejectsSchemaFingerprintMismatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := decodeEventSchema[payload](raw, fingerprint+"x", NewRedactionPolicy()); err == nil {
+	if _, err := decodeEventSchema[payload](raw, fingerprint+"x", typeName, NewRedactionPolicy()); err == nil {
 		t.Fatal("expected schema fingerprint mismatch")
+	}
+}
+
+func TestEventDeserializeRejectsPersistedTypeMismatch(t *testing.T) {
+	type payload struct {
+		Value string
+	}
+	event, err := NewEvent[payload](NewRedactionPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := event.SetData(payload{Value: "ok"}); err != nil {
+		t.Fatal(err)
+	}
+	raw, fingerprint, typeName, err := encodeEventSchema(&event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := decodeEventSchema[payload](raw, fingerprint, typeName+"Other", NewRedactionPolicy()); err == nil {
+		t.Fatal("expected persisted type mismatch")
 	}
 }

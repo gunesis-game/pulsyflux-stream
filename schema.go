@@ -99,7 +99,7 @@ func encodeEventSchema[T any](event *Event[T]) ([]byte, string, string, error) {
 
 // decodeEventSchema verifies persisted schema metadata before reconstructing a
 // typed event with the current stream's redaction policy.
-func decodeEventSchema[T any](raw []byte, fingerprint string, policy RedactionPolicy) (Event[T], error) {
+func decodeEventSchema[T any](raw []byte, fingerprint, persistedTypeName string, policy RedactionPolicy) (Event[T], error) {
 	expectedFingerprint := schemaFingerprint(reflect.TypeOf((*T)(nil)).Elem(), schemaEvent)
 	if fingerprint != expectedFingerprint {
 		return Event[T]{}, fmt.Errorf("deserialize event: schema fingerprint mismatch")
@@ -115,6 +115,9 @@ func decodeEventSchema[T any](raw []byte, fingerprint string, policy RedactionPo
 		return Event[T]{}, fmt.Errorf("deserialize event envelope: %w", err)
 	}
 	expectedType := eventTypeName[T]()
+	if persistedTypeName != expectedType {
+		return Event[T]{}, fmt.Errorf("deserialize event: persisted type mismatch, got %q want %q", persistedTypeName, expectedType)
+	}
 	if envelope.Type != expectedType {
 		return Event[T]{}, fmt.Errorf("deserialize event: type mismatch, got %q want %q", envelope.Type, expectedType)
 	}
