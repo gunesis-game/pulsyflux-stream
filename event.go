@@ -62,20 +62,6 @@ func (e *Event[T]) Data() T {
 	return e.data
 }
 
-// serialize delegates the private event wire encoding to schema.go.
-func (e *Event[T]) serialize() ([]byte, error) {
-	encoded, _, _, err := encodeEventSchema(e)
-	return encoded, err
-}
-
-// deserialize delegates schema-aware reconstruction to schema.go. The
-// compatibility helper supplies the current type's fingerprint; replay paths
-// must pass the fingerprint stored with the disk record to decodeEventSchema.
-func deserialize[T any](raw []byte, redactionPolicy RedactionPolicy) (Event[T], error) {
-	fingerprint := schemaFingerprint(reflect.TypeOf((*T)(nil)).Elem(), schemaEvent)
-	return decodeEventSchema[T](raw, fingerprint, redactionPolicy)
-}
-
 // validate checks the redaction paths against the payload type T.
 func (e *Event[T]) validate() error {
 	t := reflect.TypeOf((*T)(nil)).Elem()
