@@ -265,9 +265,9 @@ The writer distinguishes buffering from filesystem synchronization:
 - **Append:** writes to the `bufio.Writer`; without `SyncEachAppend`, this may not immediately reach the OS file.
 - **Flush:** drains the Go buffer to the file.
 - **Sync:** flushes first, then calls `os.File.Sync()`.
-- **Close:** flushes if there is no prior sticky failure, closes the active file, and joins any applicable errors.
+- **Close:** flushes if there is no prior sticky failure, closes the active file, stores the joined result, and returns that same result on every later `Close` call.
 
-Errors from append I/O, explicit `Flush`, explicit `Sync`, and append-time rotation are made sticky through `failLocked`. Subsequent appends return that stored failure instead of pretending the writer can continue.
+Errors from append I/O, explicit `Flush`, explicit `Sync`, and append-time rotation are made sticky through `failLocked`. A flush failure during `Close` is also retained in the close result. Subsequent appends return the stored failure instead of pretending the writer can continue; repeated `Close` calls return the original close result.
 
 ```mermaid
 stateDiagram-v2
@@ -279,7 +279,7 @@ stateDiagram-v2
     Failed --> Failed: Append returns stored error
     Failed --> Closed: Close (does not flush after sticky failure)
     Ready --> Closed: Close (flush then close)
-    Closed --> Closed: Close is idempotent
+    Closed --> Closed: Close returns retained result
     Closed --> [*]
 ```
 
@@ -289,7 +289,7 @@ stateDiagram-v2
 | `Append` with `SyncEachAppend` | Yes | Yes | Flush/sync error becomes sticky |
 | `Flush` | Yes | No | Error becomes sticky |
 | `Sync` | Yes | Yes | Error becomes sticky |
-| `Close` | Yes, unless already failed | No explicit sync | Returns joined failure/flush/close errors; marks writer closed |
+| `Close` | Yes, unless already failed | No explicit sync | Returns and retains joined failure/flush/close errors; repeated calls return the same result |
 
 A successful `Flush` is not the same guarantee as a successful `Sync`: flush drains the userspace buffer, while sync requests filesystem persistence.
 
@@ -360,7 +360,7 @@ These are the rules that the implementation and its tests are protecting.
 3. **Frame integrity:** a complete frame must pass magic, length, checksum, JSON, version, and required-field validation.
 4. **No silent skipping:** readers stop at the first corrupt or incomplete record and never jump ahead.
 5. **Narrow crash recovery:** only an incomplete tail in the final segment may be truncated during writer startup.
-6. **Sticky writer I/O failure:** once an append/flush/sync/rotation I/O failure occurs, later appends cannot continue as if nothing happened.
+6. **Sticky writer I/O failure:** once an append/flush/sync/rotation I/O failure occurs, later appends cannot continue as if nothing happened; `Close` retains its first joined result for repeat calls.
 7. **Private persistence boundary:** the disk writer is private and expects payload data to have been prepared/redacted upstream.
 8. **No timestamp ordering:** sequence numbers determine persisted order; timestamps remain metadata.
 
