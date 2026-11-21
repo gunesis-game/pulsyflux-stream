@@ -4,7 +4,7 @@
 Provide a small, concurrency-safe, typed Go event stream, with a clear path toward redactionPolicy-controlled event persistence and replay.
 
 ## Core architecture
-- **Event owns event semantics.** Typed payload (T), type-derived identity, internal timestamp, redaction redactionPolicy, payload validation, and private serialization/deserialization.
+- **Event owns event semantics.** Typed payload (T), type-derived identity, internal timestamp, redaction policy, payload validation, and private serialization/deserialization.
 - **Stream owns delivery.** Publish the full in-memory event to subscribers. Streaming does not redact data.
 - **Store will own persistence orchestration.** Once a persistence backend exists, the store calls the event's internal serialization method before handing bytes to persistence. It does not inspect payload fields or implement redaction.
 - **Persistence owns bytes.** Backends should not know Go generic types, event payload structures, or redaction rules.
