@@ -132,7 +132,8 @@ func nilContext(ctx context.Context) bool {
 }
 
 // Publish sends event to every active subscriber. Event timestamps are set
-// during construction and are internal to Event. With no subscribers, Publish succeeds.
+// during construction and are internal to Event. With no subscribers, Publish
+// succeeds.
 func (s *Stream[T]) Publish(event Event[T]) error {
 	// Serialize publishers: the buffer preflight and sends must be one
 	// critical section, otherwise concurrent publishers can overfill a
