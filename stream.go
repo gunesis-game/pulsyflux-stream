@@ -3,6 +3,7 @@ package stream
 
 import (
 	"context"
+	"reflect"
 	"errors"
 	"fmt"
 	"sync"
@@ -63,6 +64,7 @@ func (s *Subscription[TStream, TEvent]) Close() {
 // A full subscriber buffer rejects the entire publish instead of dropping
 // events or blocking publishers.
 type Stream[TStream, TEvent any] struct {
+	channel    *EventChannel[TStream]
 	mu         sync.RWMutex
 	nextID     uint64
 	subs       map[uint64]*subscriber[TEvent]
@@ -193,4 +195,34 @@ func (s *Stream[TStream, TEvent]) unsubscribe(id uint64) {
 			close(sub.done)
 		})
 	}
+}
+
+func (s *Stream[TStream, TEvent]) defaultSchemaIdentity() (schemaIdentity, error) {
+	eventIdentity, _, err := eventSchemaIdentity[TEvent](RedactionPolicy{})
+	if err != nil {
+		return schemaIdentity{}, err
+	}
+	return streamSchemaIdentity[TStream, TEvent](eventIdentity), nil
+}
+
+// schemaFingerprintsFor derives all six record fingerprints for this event.
+// Event redaction is event-scoped: it changes the effective Event, Stream, and
+// Channel fingerprints for this record, but never their base fingerprints.
+func (s *Stream[TStream, TEvent]) schemaFingerprintsFor(event Event[TEvent]) (schemaFingerprints, error) {
+	if s == nil || s.channel == nil {
+		return schemaFingerprints{}, ErrNilEventChannel
+	}
+	eventIdentity, _, err := eventSchemaIdentity[TEvent](event.redactionPolicy)
+	if err != nil {
+		return schemaFingerprints{}, fmt.Errorf("stream: derive event schema identity: %w", err)
+	}
+	streamIdentity := streamSchemaIdentity[TStream, TEvent](eventIdentity)
+	channelIdentity, err := s.channel.schemaIdentityForStream(
+		reflect.TypeOf((*TEvent)(nil)).Elem(),
+		streamIdentity,
+	)
+	if err != nil {
+		return schemaFingerprints{}, err
+	}
+	return schemaFingerprintsFromIdentities(eventIdentity, streamIdentity, channelIdentity), nil
 }

@@ -339,6 +339,41 @@ func eventSchemaIdentity[T any](policy RedactionPolicy) (schemaIdentity, []strin
 	return identity, paths, nil
 }
 
+
+func streamSchemaIdentity[TStream, TEvent any](event schemaIdentity) schemaIdentity {
+	streamContext := reflect.TypeOf((*TStream)(nil)).Elem()
+	descriptor := "stream:v1:" + canonicalTypeDescriptor(streamContext)
+	return composeSchemaIdentity(schemaStream, descriptor, nil, event)
+}
+
+// channelSchemaIdentity composes the channel context with every registered
+// stream identity. Sorting by base and then effective identity makes the
+// result independent of registration order, including structurally equal
+// stream types that have different event-level policies.
+func channelSchemaIdentity[TStream any](streams []schemaIdentity) schemaIdentity {
+	dependencies := append([]schemaIdentity(nil), streams...)
+	sort.Slice(dependencies, func(i, j int) bool {
+		if dependencies[i].Base != dependencies[j].Base {
+			return dependencies[i].Base < dependencies[j].Base
+		}
+		return dependencies[i].Effective < dependencies[j].Effective
+	})
+	channelContext := reflect.TypeOf((*TStream)(nil)).Elem()
+	descriptor := "channel:v1:" + canonicalTypeDescriptor(channelContext)
+	return composeSchemaIdentity(schemaChannel, descriptor, nil, dependencies...)
+}
+
+func schemaFingerprintsFromIdentities(event, stream, channel schemaIdentity) schemaFingerprints {
+	return schemaFingerprints{
+		EventBase:        event.Base,
+		EventEffective:   event.Effective,
+		StreamBase:       stream.Base,
+		StreamEffective:  stream.Effective,
+		ChannelBase:      channel.Base,
+		ChannelEffective: channel.Effective,
+	}
+}
+
 // encodeSchema serializes typed data and applies redaction to a JSON copy.
 // The returned bytes are the payload itself, without persistence metadata.
 func encodeSchema[T any](data T, policy RedactionPolicy) ([]byte, schemaIdentity, error) {

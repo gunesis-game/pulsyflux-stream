@@ -1,6 +1,7 @@
 package stream
 
 import (
+	"fmt"
 	"reflect"
 	"sync"
 
@@ -9,6 +10,10 @@ import (
 
 // EventChannel is a logical grouping identity for a family of related streams.
 // Every stream registered with a channel shares its TStream type context.
+type streamSchemaIdentityProvider interface {
+	defaultSchemaIdentity() (schemaIdentity, error)
+}
+
 type EventChannel[TStream any] struct {
 	id uuid.UUID
 
@@ -70,6 +75,7 @@ func register[TStream, TEvent any](channel *EventChannel[TStream], bufferSize in
 	}
 
 	stream := &Stream[TStream, TEvent]{
+		channel:    channel,
 		subs:       make(map[uint64]*subscriber[TEvent]),
 		bufferSize: bufferSize,
 	}
@@ -96,4 +102,36 @@ func Get[TStream, TEvent any](channel *EventChannel[TStream]) *Stream[TStream, T
 	}
 	stream, _ := value.(*Stream[TStream, TEvent])
 	return stream
+}
+
+func (channel *EventChannel[TStream]) schemaIdentityForStream(activeEventType reflect.Type, activeStream schemaIdentity) (schemaIdentity, error) {
+	if channel == nil {
+		return schemaIdentity{}, ErrNilEventChannel
+	}
+
+	channel.mu.RLock()
+	defer channel.mu.RUnlock()
+
+	dependencies := make([]schemaIdentity, 0, len(channel.streams))
+	activeFound := false
+	for eventType, value := range channel.streams {
+		provider, ok := value.(streamSchemaIdentityProvider)
+		if !ok {
+			return schemaIdentity{}, fmt.Errorf("stream: registered value does not provide schema identity")
+		}
+		if eventType == activeEventType {
+			dependencies = append(dependencies, activeStream)
+			activeFound = true
+			continue
+		}
+		identity, err := provider.defaultSchemaIdentity()
+		if err != nil {
+			return schemaIdentity{}, fmt.Errorf("stream: derive registered stream schema identity: %w", err)
+		}
+		dependencies = append(dependencies, identity)
+	}
+	if !activeFound {
+		return schemaIdentity{}, fmt.Errorf("stream: active event type is not registered in channel")
+	}
+	return channelSchemaIdentity[TStream](dependencies), nil
 }
