@@ -106,3 +106,44 @@ Do not introduce a public storage API until the internal storage contract and du
 - Writer I/O failures become sticky: after a failed append/flush/sync/rotation, later writes fail rather than continuing from uncertain on-disk state.
 - No index work was started. Reader reliability remains unverified until the complete CI run passes.
 - Verification limitation during this session: the available GitHub workflow-run lookup only returns pull-request-triggered runs; commit combined-status lookup returned no statuses for the new push commits. A local checkout could not be cloned because the execution environment could not resolve github.com. Do not report CI green from these empty results; obtain the push-triggered Actions run and confirm formatting, race tests/coverage, vet, and build before indexing.
+
+
+## Session handoff — verified storage reliability checkpoint (2026-11-21)
+
+### Authoritative repository state
+- Repository: `gunesis-game/pulsyflux-stream`; continue directly on `main`.
+- Verified `main` HEAD: `1d463b60bbfe749de8b06f2ad3ff17fed6fe7de8`.
+- The older handoff above contains stale/contradictory checkpoint details and CI uncertainty. This section supersedes those details for the current state.
+- Latest verified CI run: [44892436892](https://github.com/gunesis-game/pulsyflux-stream/actions/runs/44892436892), completed with conclusion `success` for the exact HEAD above. The single Test and build job completed successfully, including Go formatting, formatting verification, `go test -race -cover ./...`, `go vet ./...`, and `go build ./...`.
+- The preceding run 44892380803 failed because the new sticky-writer test used the default buffered writer, so the injected failure was not reached during Append. The test was corrected to use `bufio.NewWriterSize(..., 1)`; the corrected test passed in run 44892436892. Do not treat the preceding failure as an unresolved product-code failure.
+- CI workflow policy already implemented: Markdown-only changes (including new Markdown files) must not trigger CI; mixed changes containing relevant non-Markdown files should trigger CI; manual workflow dispatch remains available. Preserve this behavior. Do not change the workflow unless specifically requested.
+
+### Latest reliability tests added
+- Commit `a041f232a8638e85037ee512544d84dcb7c54e80`: added `TestDiskReaderStopsAtCorruptionInMiddleSegment`. It verifies that after reading valid records, the reader fails closed on a complete checksum-corrupt frame in a middle segment, does not skip to a later segment, and retains the terminal error on subsequent `Next()` calls. CI run 44892340353 passed.
+- Commit `e015e9c761d1cd38db8249e1c325554a6c591600`: added `TestDiskWriterAppendFailureIsSticky` and a failing writer helper. Its first CI run exposed the buffering issue described above.
+- Commit `1d463b60bbfe749de8b06f2ad3ff17fed6fe7de8`: corrected the injected writer to use a one-byte bufio buffer. This is the current HEAD and its full CI run passed.
+- Earlier verified test `TestDiskWriterReopenAcrossSegmentsReaderContinuity` covers append, writer close/reopen, additional appends across segments, and sequential reader continuity through all six records.
+
+### Current storage behavior and constraints
+- Keep the disk reader incremental: decode one framed record per `Next()`, retain only the active segment file, close it at EOF and on terminal errors, and preserve terminal errors.
+- Keep segment discovery strict: canonical `segment-%06d.pfs` names and contiguous numbering starting at 1. This assumption is acceptable for append-only storage without pruning/compaction; revisit only as part of an explicit retention design.
+- Reader must reject incomplete tails, complete-frame corruption, and non-increasing sequence values across segment boundaries. It must not skip middle corruption.
+- Writer I/O failures are sticky; after a failed append/flush/sync/rotation, later appends must return the stored failure rather than continue from uncertain disk state.
+- Writer reopen scans segments to recover sequence state, rejects incomplete tails in non-active segments, and truncates an incomplete tail only in the active final segment.
+- Important remaining memory concern: `scanDiskRecords`, used during writer recovery, currently accumulates decoded records for a segment in a `[]diskRecord`. The public-facing reader is incremental, but recovery scanning may still use memory proportional to segment contents. Review whether recovery can be made streaming without weakening validation/recovery semantics.
+- Do not start index implementation until the disk reader and recovery path have been deliberately reviewed and considered reliable. No index implementation has been started.
+- Keep public API and identity boundaries unchanged: no public storage API, no public storage-record model, no exposure of internal UUIDs or schema fingerprints. Redact before persistence. Sequence numbers define persisted order; timestamps are metadata.
+
+### Next session — recommended work order
+1. Verify current `main` HEAD and the latest completed CI run before editing.
+2. Inspect the current `storage_disk.go` and `storage_disk_test.go` rather than relying solely on this handoff.
+3. Review recovery scanning memory behavior and error-path semantics. Consider converting recovery scan to a streaming scan that tracks only the state needed (last sequence, valid byte offset, incomplete-tail status, and any required validation), while preserving complete-frame corruption detection and monotonic sequence checks.
+4. Add focused tests for any changed recovery behavior, including large/multi-record segments, complete corruption, incomplete active tail truncation, and incomplete non-active segment rejection.
+5. Continue reviewing writer failure paths (flush, sync, segment rotation, close) with injected I/O failures where practical.
+6. Commit directly to `main`, wait for CI, and inspect the actual run and every job step before reporting success.
+7. Only after reader and recovery reliability are established, discuss a minimal rebuildable index design. Do not introduce SQL, distributed infrastructure, or a public storage API prematurely.
+
+### Session operating rules
+- Do not edit Markdown files except when explicitly asked. This handoff was explicitly requested; ordinary implementation commits should avoid Markdown-only edits.
+- Markdown-only changes must not trigger CI. Do not claim a CI run occurred for this documentation-only update.
+- Do not claim local Go tests were run unless a local checkout and execution actually occurred. GitHub Actions is the verified source for the latest test/build results.
