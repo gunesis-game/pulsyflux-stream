@@ -348,4 +348,3 @@ func TestEventChannelIdentityIsPrivateAndUnique(t *testing.T) {
 		t.Fatal("distinct channels shared an internal identity")
 	}
 }
-
