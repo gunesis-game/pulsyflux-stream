@@ -33,8 +33,39 @@ func eventTypeName[T any]() string {
 	return t.String()
 }
 
+// validateEventData checks JSON encodability at the schema boundary without
+// retaining an encoded copy of the payload.
+func validateEventData[T any](data T) error {
+	if _, err := json.Marshal(data); err != nil {
+		return fmt.Errorf("invalid event data: %w", err)
+	}
+	return nil
+}
+
 // encodeEventSchema owns schema-aware event serialization and returns the
 // schema fingerprint and type identity that storage persists as metadata.
+// redactPath removes an exclusion path from the JSON-shaped payload copy.
+func redactPath(value any, parts []string) {
+	if len(parts) == 0 {
+		return
+	}
+	switch v := value.(type) {
+	case []any:
+		for _, item := range v {
+			redactPath(item, parts)
+		}
+	case map[string]any:
+		key := parts[0]
+		if len(parts) == 1 {
+			delete(v, key)
+			return
+		}
+		if child, ok := v[key]; ok {
+			redactPath(child, parts[1:])
+		}
+	}
+}
+
 func encodeEventSchema[T any](event *Event[T]) ([]byte, string, string, error) {
 	if !event.dataSet {
 		return nil, "", "", ErrUnsetEventData

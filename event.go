@@ -1,7 +1,6 @@
 package stream
 
 import (
-	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
@@ -49,8 +48,8 @@ func (e *Event[T]) SetData(data T) error {
 	if err := e.validate(); err != nil {
 		return fmt.Errorf("invalid event redaction policy: %w", err)
 	}
-	if _, err := json.Marshal(data); err != nil {
-		return fmt.Errorf("invalid event data: %w", err)
+	if err := validateEventData(data); err != nil {
+		return err
 	}
 	e.data = data
 	e.dataSet = true
@@ -139,23 +138,3 @@ func jsonFieldName(field reflect.StructField) (string, bool) {
 	return name, false
 }
 
-func redactPath(value any, parts []string) {
-	if len(parts) == 0 {
-		return
-	}
-	switch v := value.(type) {
-	case []any:
-		for _, item := range v {
-			redactPath(item, parts)
-		}
-	case map[string]any:
-		key := parts[0]
-		if len(parts) == 1 {
-			delete(v, key)
-			return
-		}
-		if child, ok := v[key]; ok {
-			redactPath(child, parts[1:])
-		}
-	}
-}
