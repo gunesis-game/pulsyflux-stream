@@ -12,6 +12,19 @@ import (
 
 const schemaFingerprintVersion = "pulsyflux-schema-v1"
 
+// RedactionPolicy defines JSON field paths excluded by schema-aware serialization.
+// Paths use JSON field names. The policy is shared by Event, Stream, and Channel
+// schema adapters; each adapter decides privately how the policy is applied.
+type RedactionPolicy struct {
+	exclude []string
+}
+
+// NewRedactionPolicy constructs an immutable-by-convention redaction policy.
+// The exclusions are copied and cannot be modified by callers.
+func NewRedactionPolicy(exclude ...string) RedactionPolicy {
+	return RedactionPolicy{exclude: append([]string(nil), exclude...)}
+}
+
 // validateSchemaData checks whether a value can be represented as JSON.
 func validateSchemaData[T any](data T) error {
 	_, err := json.Marshal(data)

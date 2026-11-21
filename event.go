@@ -6,18 +6,6 @@ import (
 	"time"
 )
 
-// RedactionPolicy defines JSON field paths excluded by Event serialization.
-// Paths use JSON field names; the generic redaction implementation lives in schema.go.
-type RedactionPolicy struct {
-	exclude []string
-}
-
-// NewRedactionPolicy constructs an immutable-by-convention redaction policy.
-// The exclusions are copied and cannot be modified by callers.
-func NewRedactionPolicy(exclude ...string) RedactionPolicy {
-	return RedactionPolicy{exclude: append([]string(nil), exclude...)}
-}
-
 // Event is a typed event with metadata and a payload governed by a redaction
 // policy. Data is intentionally private so assignments go through
 // SetData.

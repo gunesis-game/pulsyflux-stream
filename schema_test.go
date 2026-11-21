@@ -127,3 +127,13 @@ func TestNormalizeSchemaRedactionPaths(t *testing.T) {
 		t.Fatalf("normalized paths = %#v", paths)
 	}
 }
+
+func TestNewRedactionPolicyCopiesExclusions(t *testing.T) {
+	exclusions := []string{"secret"}
+	policy := NewRedactionPolicy(exclusions...)
+	exclusions[0] = "public"
+
+	if len(policy.exclude) != 1 || policy.exclude[0] != "secret" {
+		t.Fatalf("policy exclusions changed with caller slice: %#v", policy.exclude)
+	}
+}
