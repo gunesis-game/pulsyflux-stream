@@ -225,3 +225,57 @@ func (w *diskWriter) Close() error {
 	w.closed = true
 	return errors.Join(flushErr, closeErr)
 }
+
+type diskReader struct {
+	paths []string
+	segmentIndex int
+	records []diskRecord
+	recordIndex int
+	lastSequence uint64
+	closed bool
+}
+
+// openDiskReader opens the ordered segment set for sequential reading. It loads
+// one segment at a time and rejects incomplete tails or corrupt frames.
+func openDiskReader(dir string) (*diskReader, error) {
+	paths, err := diskSegments(dir)
+	if err != nil { return nil, err }
+	return &diskReader{paths: paths}, nil
+}
+
+// Next returns the next record in persisted sequence order, or io.EOF when
+// every segment has been read.
+func (r *diskReader) Next() (diskRecord, error) {
+	if r.closed { return diskRecord{}, ErrClosed }
+	for r.recordIndex >= len(r.records) {
+		if r.segmentIndex >= len(r.paths) { return diskRecord{}, io.EOF }
+		path := r.paths[r.segmentIndex]
+		r.segmentIndex++
+		f, err := os.Open(path)
+		if err != nil { return diskRecord{}, err }
+		records, _, tail, scanErr := scanDiskRecords(f)
+		closeErr := f.Close()
+		if scanErr != nil { return diskRecord{}, scanErr }
+		if closeErr != nil { return diskRecord{}, closeErr }
+		if tail { return diskRecord{}, fmt.Errorf("%w: incomplete tail in %q", errRecordCorrupt, filepath.Base(path)) }
+		if len(records) > 0 && records[0].Sequence <= r.lastSequence {
+			return diskRecord{}, fmt.Errorf("%w: sequence order across segments", errRecordCorrupt)
+		}
+		r.records, r.recordIndex = records, 0
+	}
+	record := r.records[r.recordIndex]
+	r.recordIndex++
+	if record.Sequence <= r.lastSequence {
+		return diskRecord{}, fmt.Errorf("%w: non-increasing sequence", errRecordCorrupt)
+	}
+	r.lastSequence = record.Sequence
+	return record, nil
+}
+
+// Close releases reader state. The reader owns no persistent open file handle.
+func (r *diskReader) Close() error {
+	if r.closed { return nil }
+	r.closed = true
+	r.records = nil
+	return nil
+}
