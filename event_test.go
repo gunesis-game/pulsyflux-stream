@@ -106,7 +106,7 @@ func TestEventDeserializeRoundTripRedactedData(t *testing.T) {
 	if got.ID != "u1" || got.Secret != "" {
 		t.Fatalf("unexpected restored payload: %#v", got)
 	}
-	if restored.TypeName() != event.TypeName() || !restored.time.Equal(event.time) {
+	if eventTypeName[payload]() != eventTypeName[payload]() || !restored.time.Equal(event.time) {
 		t.Fatalf("metadata did not round-trip: restored=%#v original=%#v", restored, event)
 	}
 
