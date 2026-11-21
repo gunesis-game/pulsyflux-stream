@@ -58,7 +58,7 @@ func main() {
 	}
 	defer sub.Close()
 
-	event, err := stream.NewEvent[PlayerJoined](stream.NewPolicy())
+	event, err := stream.NewEvent[PlayerJoined](stream.NewRedactionRedactionPolicy())
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -93,10 +93,10 @@ func main() {
 
 ## Typed events and redaction policies
 
-Events are created with an explicit policy. Policy paths use JSON field names (including JSON tags) and are validated against the payload type when the event is constructed. Use an empty policy when no redaction is required.
+Events are created with an explicit redactionPolicy. RedactionPolicy paths use JSON field names (including JSON tags) and are validated against the payload type when the event is constructed. Use an empty redactionPolicy when no redaction is required.
 
 ```go
-event, err := stream.NewEvent[PlayerJoined](stream.NewPolicy())
+event, err := stream.NewEvent[PlayerJoined](stream.NewRedactionRedactionPolicy())
 if err != nil {
     log.Fatal(err)
 }
