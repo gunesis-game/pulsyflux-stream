@@ -79,7 +79,7 @@ func register[TStream, TEvent any](channel *EventChannel[TStream], bufferSize in
 
 // Get returns the stream for TEvent registered in channel, or nil if absent.
 func Get[TStream, TEvent any](channel *EventChannel[TStream]) *Stream[TStream, TEvent] {
-	if channel == nil || channel.id == uuid.Nil {
+	if channel == nil {
 		return nil
 	}
 
