@@ -8,7 +8,7 @@ import (
 )
 
 // streamKey identifies one typed stream within a logical event channel.
-// It is stable across processes when the same channel UUID is reused.
+// It is stable for the lifetime of the channel handle.
 type streamKey struct {
 	ChannelID uuid.UUID
 	EventType reflect.Type
@@ -25,12 +25,12 @@ var defaultStore = &streamStore{
 	streams: make(map[streamKey]any),
 }
 
-// register creates and stores a stream for T under the channel's stable UUID.
+// register creates and stores a stream for T under the channel's private UUID.
 func register[T any](channel *EventChannel, bufferSize int) (*Stream[T], error) {
 	if channel == nil {
 		return nil, ErrNilEventChannel
 	}
-	if channel.ID == uuid.Nil {
+	if channel.id == uuid.Nil {
 		return nil, ErrNilEventChannelID
 	}
 
@@ -41,7 +41,7 @@ func register[T any](channel *EventChannel, bufferSize int) (*Stream[T], error) 
 	}
 
 	key := streamKey{
-		ChannelID: channel.ID,
+		ChannelID: channel.id,
 		EventType: reflect.TypeOf((*T)(nil)).Elem(),
 	}
 
