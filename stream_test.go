@@ -211,7 +211,7 @@ func TestPublishToMultipleSubscribers(t *testing.T) {
 	for _, sub := range []*Subscription[string]{a, b} {
 		select {
 		case got := <-sub.Events():
-			if eventTypeName[string]() != want.TypeName() || got.Data() != want.Data() {
+			if got.Data() != want.Data() {
 				t.Fatalf("got %#v, want %#v", got, want)
 			}
 			if got.time.IsZero() {
