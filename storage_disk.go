@@ -99,8 +99,8 @@ func scanDiskRecords(rd io.Reader) (uint64, int64, bool, error) {
 	var lastSequence uint64
 	var offset int64
 	for {
-		h := make([]byte, recordHeaderBytes)
-		n, err := io.ReadFull(rd, h)
+		var h [recordHeaderBytes]byte
+		n, err := io.ReadFull(rd, h[:])
 		if err == io.EOF && n == 0 {
 			return lastSequence, offset, false, nil
 		}
@@ -117,15 +117,15 @@ func scanDiskRecords(rd io.Reader) (uint64, int64, bool, error) {
 		if size > maxRecordBytes {
 			return lastSequence, offset, false, fmt.Errorf("%w at byte %d: oversized frame", errRecordCorrupt, offset)
 		}
-		rest := make([]byte, size+recordChecksumBytes)
-		n, err = io.ReadFull(rd, rest)
+		frame := make([]byte, recordHeaderBytes+size+recordChecksumBytes)
+		copy(frame, h[:])
+		n, err = io.ReadFull(rd, frame[recordHeaderBytes:])
 		if err == io.EOF || err == io.ErrUnexpectedEOF {
 			return lastSequence, offset, true, nil
 		}
 		if err != nil {
 			return lastSequence, offset, false, err
 		}
-		frame := append(h, rest...)
 		record, err := decodeDiskRecord(frame)
 		if err != nil {
 			return lastSequence, offset, false, fmt.Errorf("scan byte %d: %w", offset, err)
@@ -404,8 +404,8 @@ type diskReader struct {
 }
 
 // openDiskReader validates the segment set before opening it for sequential
-// reading. Segment files are opened lazily so memory use is independent of the
-// total size of a segment or the complete stream.
+// reading. Segment files are opened lazily; retained path metadata grows with
+// the number of segment files, not with their contents.
 func openDiskReader(dir string) (*diskReader, error) {
 	paths, err := diskSegments(dir)
 	if err != nil {
@@ -418,8 +418,8 @@ func openDiskReader(dir string) (*diskReader, error) {
 // reported as an incomplete tail; malformed complete frames are corruption.
 func readDiskRecord(rd io.Reader, offset int64) (diskRecord, int64, bool, error) {
 	var record diskRecord
-	header := make([]byte, recordHeaderBytes)
-	n, err := io.ReadFull(rd, header)
+	var header [recordHeaderBytes]byte
+	n, err := io.ReadFull(rd, header[:])
 	if err == io.EOF && n == 0 {
 		return record, 0, false, io.EOF
 	}
@@ -436,14 +436,14 @@ func readDiskRecord(rd io.Reader, offset int64) (diskRecord, int64, bool, error)
 	if size > maxRecordBytes {
 		return record, 0, false, fmt.Errorf("%w at byte %d: oversized frame", errRecordCorrupt, offset)
 	}
-	rest := make([]byte, int(size)+recordChecksumBytes)
-	if _, err := io.ReadFull(rd, rest); err != nil {
+	frame := make([]byte, recordHeaderBytes+int(size)+recordChecksumBytes)
+	copy(frame, header[:])
+	if _, err := io.ReadFull(rd, frame[recordHeaderBytes:]); err != nil {
 		if err == io.EOF || err == io.ErrUnexpectedEOF {
 			return record, 0, true, nil
 		}
 		return record, 0, false, err
 	}
-	frame := append(header, rest...)
 	record, err = decodeDiskRecord(frame)
 	if err != nil {
 		return diskRecord{}, 0, false, fmt.Errorf("scan byte %d: %w", offset, err)

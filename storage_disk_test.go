@@ -3,6 +3,7 @@ package stream
 import (
 	"bufio"
 	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"io"
@@ -36,6 +37,30 @@ func TestDiskRecordRoundTripChecksum(t *testing.T) {
 	frame[len(frame)-1] ^= 0xff
 	if _, err := decodeDiskRecord(frame); !errors.Is(err, errRecordCorrupt) {
 		t.Fatalf("checksum not detected: %v", err)
+	}
+}
+
+func TestDiskRecordReadersRejectOversizedLengthsAndDetectTruncatedBodies(t *testing.T) {
+	oversized := make([]byte, recordHeaderBytes)
+	copy(oversized[:4], recordMagic[:])
+	binary.BigEndian.PutUint32(oversized[4:], uint32(maxRecordBytes+1))
+
+	if _, _, tail, err := scanDiskRecords(bytes.NewReader(oversized)); !errors.Is(err, errRecordCorrupt) || tail {
+		t.Fatalf("scanner oversized length: tail=%v err=%v", tail, err)
+	}
+	if _, _, incomplete, err := readDiskRecord(bytes.NewReader(oversized), 0); !errors.Is(err, errRecordCorrupt) || incomplete {
+		t.Fatalf("reader oversized length: incomplete=%v err=%v", incomplete, err)
+	}
+
+	truncated := make([]byte, recordHeaderBytes+3)
+	copy(truncated[:4], recordMagic[:])
+	binary.BigEndian.PutUint32(truncated[4:8], 1024)
+	truncated[recordHeaderBytes] = 1
+	if _, offset, tail, err := scanDiskRecords(bytes.NewReader(truncated)); err != nil || !tail || offset != 0 {
+		t.Fatalf("scanner truncated body: offset=%d tail=%v err=%v", offset, tail, err)
+	}
+	if _, _, incomplete, err := readDiskRecord(bytes.NewReader(truncated), 0); err != nil || !incomplete {
+		t.Fatalf("reader truncated body: incomplete=%v err=%v", incomplete, err)
 	}
 }
 
@@ -76,6 +101,66 @@ func TestScanDiskRecordsTracksSequenceWithBoundedState(t *testing.T) {
 	if lastSequence != count || offset != wantOffset || tail {
 		t.Fatalf("scan: lastSequence=%d offset=%d tail=%v; want sequence=%d offset=%d tail=false",
 			lastSequence, offset, tail, count, wantOffset)
+	}
+}
+
+func TestDiskWriterRecoversAndReaderStreamsLargeSingleSegment(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "segment-000001.pfs")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const count = uint64(4096)
+	for sequence := uint64(1); sequence <= count; sequence++ {
+		frame, err := encodeDiskRecord(testDiskRecord(sequence))
+		if err != nil {
+			file.Close()
+			t.Fatal(err)
+		}
+		if _, err := file.Write(frame); err != nil {
+			file.Close()
+			t.Fatal(err)
+		}
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	writer, err := openDiskWriter(dir, diskWriterOptions{MaxSegmentBytes: 1 << 30})
+	if err != nil {
+		t.Fatalf("recover large segment: %v", err)
+	}
+	if writer.nextSequence != count {
+		t.Fatalf("recovered sequence=%d want=%d", writer.nextSequence, count)
+	}
+	next, _, err := writer.Append(uuid.New(), uuid.New(), "schema", "event", time.Now(), []byte(`{"after":"recovery"}`))
+	if err != nil {
+		t.Fatalf("append after recovery: %v", err)
+	}
+	if next != count+1 {
+		t.Fatalf("next sequence=%d want=%d", next, count+1)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reader, err := openDiskReader(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	for expected := uint64(1); expected <= count+1; expected++ {
+		record, err := reader.Next()
+		if err != nil {
+			t.Fatalf("read sequence %d: %v", expected, err)
+		}
+		if record.Sequence != expected {
+			t.Fatalf("read sequence=%d want=%d", record.Sequence, expected)
+		}
+	}
+	if _, err := reader.Next(); !errors.Is(err, io.EOF) {
+		t.Fatalf("expected EOF after large segment, got %v", err)
 	}
 }
 

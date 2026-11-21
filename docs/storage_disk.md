@@ -68,7 +68,7 @@ flowchart TB
 | `diskRecord` | In-memory representation of one persisted event | Contains private identity and schema metadata |
 | `encodeDiskRecord` | Validate fields and create a frame | Rejects missing required fields, unsupported version, and oversized body |
 | `decodeDiskRecord` | Validate and decode one complete frame | Checks magic, length, checksum, JSON, version, and required fields |
-| `diskSegments` | Discover and order segment paths | Rejects malformed `.pfs` names and numbering gaps |
+| `diskSegments` | Discover and order segment paths | Rejects malformed `.pfs` names and numbering gaps; retains O(segment count) path metadata |
 | `diskWriter` | Append and rotate segments | Serializes calls with a mutex; sequence is writer-owned |
 | `scanDiskRecords` | Inspect records during writer startup | Streams one frame at a time; retains only the last sequence and valid byte offset |
 | `diskReader` | Read all segments sequentially | Opens lazily and retains only the current decoded frame |
@@ -328,9 +328,9 @@ flowchart TD
 
 ### Reader memory profile
 
-The reader retains the segment path list and one decoded record/frame at a time. It does not load an entire segment into memory.
+The reader retains the ordered segment path list plus one decoded record at a time. It does not load an entire segment into memory. Segment discovery uses `os.ReadDir` and retains O(number of segment files) path metadata, so metadata memory grows with segment count even though it does not grow with the bytes or record count inside those files.
 
-Writer startup recovery is also streaming: `scanDiskRecords` validates one frame at a time and retains only the last sequence, valid byte offset, and incomplete-tail state. Recovery memory is therefore bounded by the largest individual frame rather than the number of records in a segment.
+Writer startup recovery is streaming: `scanDiskRecords` validates one frame at a time and retains only the last sequence, valid byte offset, and incomplete-tail state. Its record-processing memory is O(maxRecordBytes), independent of the number of records in a segment. The scanner and reader allocate one contiguous frame buffer (up to the 64 MiB body limit plus framing) rather than separately allocating a body and then copying it into a second full frame; JSON decoding can additionally allocate the returned `json.RawMessage` payload.
 
 ## 8. Recovery versus normal reading
 
@@ -365,7 +365,8 @@ These are the rules that the implementation and its tests are protecting.
 - There is no public storage API in this file.
 - There is no index in this implementation. Writer recovery scans segment contents to rebuild the next sequence.
 - There is no segment pruning or compaction; the current segment validator expects the full sequence beginning at segment 1.
-- Startup recovery validates each frame incrementally and retains only the last sequence, valid byte offset, and incomplete-tail state; memory does not grow with the number of records in a segment.
+- Startup recovery validates each frame incrementally and retains only the last sequence, valid byte offset, and incomplete-tail state; record-processing memory does not grow with the number of records in a segment.
+- Segment discovery and reader state retain O(number of segment files) path metadata; aggregate segment bytes and record count within each segment do not determine the retained record-processing memory.
 - Keep the diagrams and this document aligned with the implementation when frame format, recovery behavior, or writer/reader lifecycle changes.
 
 ## 11. Source map
