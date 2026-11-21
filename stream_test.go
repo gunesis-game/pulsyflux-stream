@@ -56,7 +56,11 @@ func TestEventChannelRegistersTypedStreams(t *testing.T) {
 		t.Fatal("Get did not return the second registered stream")
 	}
 	if first.bufferSize != 7 || second.bufferSize != 13 {
-		t.Fatalf("unexpected buffer sizes: first=%d second=%d", first.bufferSize, second.bufferSize)
+		t.Fatalf(
+			"unexpected buffer sizes: first=%d second=%d",
+			first.bufferSize,
+			second.bufferSize,
+		)
 	}
 }
 
