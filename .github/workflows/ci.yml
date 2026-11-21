@@ -78,8 +78,26 @@ jobs:
             echo "$files"
             exit 1
           fi
-      - name: Run race tests
-        run: go test -race -cover ./...
+      - name: Run race tests and collect coverage
+        run: go test -race -coverprofile=coverage.out ./...
+      - name: Print per-file coverage
+        shell: bash
+        run: |
+          go tool cover -func=coverage.out | tee coverage-report.txt
+          {
+            echo "### Coverage (${{ matrix.os }})"
+            echo '--- coverage details ---'
+            cat coverage-report.txt
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload coverage profile and report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.os }}
+          path: |
+            coverage.out
+            coverage-report.txt
+          if-no-files-found: error
+          retention-days: 7
       - name: Run vet
         run: go vet ./...
       - name: Build package
