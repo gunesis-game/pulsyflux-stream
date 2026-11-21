@@ -137,3 +137,43 @@ func TestNewRedactionPolicyCopiesExclusions(t *testing.T) {
 		t.Fatalf("policy exclusions changed with caller slice: %#v", policy.exclude)
 	}
 }
+
+func TestSchemaIdentitySeparatesBaseAndEffectiveRedaction(t *testing.T) {
+	type payload struct {
+		Public string `json:"public"`
+		Secret string `json:"secret"`
+	}
+	typ := reflect.TypeOf(payload{})
+	base := composeSchemaIdentity(schemaEvent, canonicalTypeDescriptor(typ), nil)
+	redacted := composeSchemaIdentity(schemaEvent, canonicalTypeDescriptor(typ), []string{"secret"})
+	otherRedaction := composeSchemaIdentity(schemaEvent, canonicalTypeDescriptor(typ), []string{"public"})
+
+	if base.Base != redacted.Base {
+		t.Fatal("redaction must not change the base schema fingerprint")
+	}
+	if base.Effective == redacted.Effective {
+		t.Fatal("redaction must change the effective schema fingerprint")
+	}
+	if redacted.Effective == otherRedaction.Effective {
+		t.Fatal("different redaction policies must produce different effective fingerprints")
+	}
+}
+
+func TestSchemaIdentityPropagatesDependencyChanges(t *testing.T) {
+	firstEvent := composeSchemaIdentity(schemaEvent, "event:v1", []string{"secret"})
+	changedEvent := composeSchemaIdentity(schemaEvent, "event:v1", []string{"private"})
+	firstStream := composeSchemaIdentity(schemaStream, "stream:v1", nil, firstEvent)
+	changedStream := composeSchemaIdentity(schemaStream, "stream:v1", nil, changedEvent)
+	firstChannel := composeSchemaIdentity(schemaChannel, "channel:v1", nil, firstStream)
+	changedChannel := composeSchemaIdentity(schemaChannel, "channel:v1", nil, changedStream)
+
+	if firstStream.Base != changedStream.Base {
+		t.Fatal("stream base fingerprint should depend on the event base schema, not its redaction")
+	}
+	if firstStream.Effective == changedStream.Effective {
+		t.Fatal("stream effective fingerprint should reflect event redaction changes")
+	}
+	if firstChannel.Effective == changedChannel.Effective {
+		t.Fatal("channel effective fingerprint should reflect nested stream changes")
+	}
+}

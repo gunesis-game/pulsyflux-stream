@@ -26,8 +26,21 @@ func eventTypeName[T any]() string {
 	return t.String()
 }
 
+// eventSchema extends the shared schema identity with Event[T]'s data shape
+// and redaction policy. All fingerprint composition remains in schema.go.
+func eventSchema[T any](policy RedactionPolicy) (schemaIdentity, error) {
+	t := reflect.TypeOf((*T)(nil)).Elem()
+	paths, err := normalizeSchemaRedactionPaths(t, policy.exclude)
+	if err != nil {
+		return schemaIdentity{}, err
+	}
+	data := composeSchemaIdentity(schemaData, canonicalTypeDescriptor(t), nil)
+	event := composeSchemaIdentity(schemaEvent, "event-envelope:v1", paths, data)
+	return event, nil
+}
+
 // encodeEventSchema adapts Event[T] to the generic schema layer and returns
-// the schema fingerprint and type identity persisted as storage metadata.
+// the effective event fingerprint and type identity for the current record format.
 func encodeEventSchema[T any](event *Event[T]) ([]byte, string, string, error) {
 	if !event.dataSet {
 		return nil, "", "", ErrUnsetEventData
@@ -45,15 +58,21 @@ func encodeEventSchema[T any](event *Event[T]) ([]byte, string, string, error) {
 	if err != nil {
 		return nil, "", "", fmt.Errorf("marshal event envelope: %w", err)
 	}
-	fingerprint := schemaFingerprint(reflect.TypeOf((*T)(nil)).Elem(), schemaEvent)
-	return encoded, fingerprint, typeName, nil
+	identity, err := eventSchema[T](event.redactionPolicy)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("derive event schema: %w", err)
+	}
+	return encoded, identity.Effective, typeName, nil
 }
 
 // decodeEventSchema verifies persisted schema metadata before reconstructing a
 // typed event with the current stream's redaction policy.
 func decodeEventSchema[T any](raw []byte, fingerprint, persistedTypeName string, policy RedactionPolicy) (Event[T], error) {
-	expectedFingerprint := schemaFingerprint(reflect.TypeOf((*T)(nil)).Elem(), schemaEvent)
-	if fingerprint != expectedFingerprint {
+	identity, err := eventSchema[T](policy)
+	if err != nil {
+		return Event[T]{}, fmt.Errorf("invalid event redaction policy: %w", err)
+	}
+	if fingerprint != identity.Effective {
 		return Event[T]{}, fmt.Errorf("deserialize event: schema fingerprint mismatch")
 	}
 

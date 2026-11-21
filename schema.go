@@ -176,6 +176,43 @@ func schemaFingerprint(t reflect.Type, layer schemaLayer) string {
 	}
 }
 
+// schemaIdentity is the shared, private identity contract extended by each
+// logical schema layer. Base identifies the unredacted definition; Effective
+// identifies that definition after redaction and dependency policies apply.
+type schemaIdentity struct {
+	Base      string
+	Effective string
+}
+
+// composeSchemaIdentity is the only fingerprint composition mechanism. Layer
+// adapters supply their descriptor, normalized redaction paths, and dependent
+// schema identities; they do not implement hashing or policy composition.
+func composeSchemaIdentity(layer schemaLayer, descriptor string, redactionPaths []string, dependencies ...schemaIdentity) schemaIdentity {
+	var base strings.Builder
+	fmt.Fprintf(&base, "%s:base:%s:%s", schemaFingerprintVersion, layer, descriptor)
+	var effective strings.Builder
+	fmt.Fprintf(&effective, "%s:effective:%s:%s", schemaFingerprintVersion, layer, descriptor)
+
+	for _, dependency := range dependencies {
+		base.WriteString(":dependency:")
+		base.WriteString(dependency.Base)
+		effective.WriteString(":dependency:")
+		effective.WriteString(dependency.Effective)
+	}
+
+	paths := append([]string(nil), redactionPaths...)
+	sort.Strings(paths)
+	for _, path := range paths {
+		effective.WriteString(":redact:")
+		effective.WriteString(path)
+	}
+
+	return schemaIdentity{
+		Base:      hashSchema(base.String()),
+		Effective: hashSchema(effective.String()),
+	}
+}
+
 func hashSchema(value string) string {
 	sum := sha256.Sum256([]byte(value))
 	return hex.EncodeToString(sum[:])
