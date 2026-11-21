@@ -23,7 +23,7 @@ func NewPolicy(exclude ...string) Policy {
 // Event is a typed event with metadata and a payload governed by a redaction
 // policy. Data is intentionally private so assignments go through SetData.
 type Event[T any] struct {
-	Time time.Time `json:"time"`
+	time time.Time
 
 	data    T
 	dataSet bool
@@ -33,7 +33,7 @@ type Event[T any] struct {
 // NewEvent constructs an event and validates its policy against T.
 func NewEvent[T any](policy Policy) (Event[T], error) {
 	policy.exclude = append([]string(nil), policy.exclude...)
-	event := Event[T]{Time: time.Now(), policy: policy}
+	event := Event[T]{time: time.Now(), policy: policy}
 	if err := event.validate(); err != nil {
 		return Event[T]{}, fmt.Errorf("invalid event policy: %w", err)
 	}
@@ -105,7 +105,7 @@ func (e *Event[T]) serialize() ([]byte, error) {
 		return nil, fmt.Errorf("marshal redacted event data: %w", err)
 	}
 
-	return json.Marshal(eventEnvelope{Type: eventTypeName[T](), Data: redacted, Time: e.Time})
+	return json.Marshal(eventEnvelope{Type: eventTypeName[T](), Data: redacted, Time: e.time})
 }
 
 // deserialize rebuilds an event using the caller-provided policy. Policy is
@@ -134,7 +134,7 @@ func deserialize[T any](raw []byte, policy Policy) (Event[T], error) {
 	if err := event.SetData(data); err != nil {
 		return Event[T]{}, fmt.Errorf("validate event data: %w", err)
 	}
-	event.Time = envelope.Time
+	event.time = envelope.Time
 	return event, nil
 }
 
