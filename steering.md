@@ -93,12 +93,12 @@ Do not introduce a public storage API until the internal storage contract and du
 ## Current handoff — schema-aware event codec centralized; replay next (2026-11-21)
 
 ### Repository and verified checkpoint
-- Repository: `gunesis-game/pulsyflux-stream`; branch: `main` only. Exact current HEAD: `9a6edad0d8810c87a57ee011b28d535ea1b54209`.
-- Exact Go code SHA tested: `3f5ea41c959ad7a0e2be34c9827381cc2a613585`; the current HEAD adds only the CI formatting-diagnostic improvement.
-- CI run [44903985022](https://github.com/gunesis-game/pulsyflux-stream/actions/runs/44903985022), run #181, completed successfully for exact current HEAD `9a6edad0d8810c87a57ee011b28d535ea1b54209`. Cleanup and both Linux/Windows jobs passed formatting, race-enabled tests, coverage report generation, artifact upload, vet, and build.
+- Repository: `gunesis-game/pulsyflux-stream`; work directly on `main`, no branches.
+- Exact code SHA tested: `a5b8992e9829d0d93c3a222b2fed21441c013c8e`.
+- CI run [44904126439](https://github.com/gunesis-game/pulsyflux-stream/actions/runs/44904126439), run #182, completed successfully for that exact SHA. Cleanup and both Linux/Windows jobs passed formatting, race-enabled tests, coverage report generation, artifact upload, vet, and build.
 - Aggregate coverage: Linux **83.9%**, Windows **83.9%**. All 55 per-function entries match. Coverage profiles have the same 467 statement blocks and identical execution counts.
-- CI formatting verification remains non-mutating and now prints the `gofmt -d` diff as well as offending filenames when formatting fails.
-- No local Go test execution is claimed. The codec refactor does not alter disk framing or persisted record layout; `docs/storage_disk.md` remains applicable and unchanged.
+- CI formatting verification is non-mutating and prints offending filenames plus the `gofmt -d` diff on failure.
+- This handoff update is documentation-only and does not trigger CI. No local Go test execution is claimed. The codec refactor does not alter disk framing or persisted record layout; `docs/storage_disk.md` remains applicable and unchanged.
 
 ### Completed codec ownership change
 - `Event[T]` remains the typed domain model in `event.go`: payload, timestamp, redaction policy, payload assignment, validation, and access.
