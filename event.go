@@ -14,9 +14,9 @@ type RedactionPolicy struct {
 	exclude []string
 }
 
-// NewRedactionRedactionPolicy constructs an immutable-by-convention redaction redactionPolicy.
+// NewRedactionPolicy constructs an immutable-by-convention redaction redactionPolicy.
 // The exclusions are copied and cannot be modified by callers.
-func NewRedactionRedactionPolicy(exclude ...string) RedactionPolicy {
+func NewRedactionPolicy(exclude ...string) RedactionPolicy {
 	return RedactionPolicy{exclude: append([]string(nil), exclude...)}
 }
 
