@@ -147,3 +147,14 @@ Do not introduce a public storage API until the internal storage contract and du
 - Do not edit Markdown files except when explicitly asked. This handoff was explicitly requested; ordinary implementation commits should avoid Markdown-only edits.
 - Markdown-only changes must not trigger CI. Do not claim a CI run occurred for this documentation-only update.
 - Do not claim local Go tests were run unless a local checkout and execution actually occurred. GitHub Actions is the verified source for the latest test/build results.
+
+## Architecture documentation maintenance — mandatory AI instruction
+
+- Treat [`docs/storage_disk.md`](docs/storage_disk.md) as the canonical, maintained architecture guide for `storage_disk.go`. It is an implementation document with detailed Mermaid diagrams, not optional supplementary prose.
+- Whenever a change modifies `storage_disk.go` behavior, data structures, record framing/encoding, segment naming or lifecycle, recovery semantics, writer durability/failure handling, reader behavior, or storage invariants, review and update `docs/storage_disk.md` in the **same commit** so its explanations, tables, source map, and diagrams describe the resulting implementation.
+- Update the relevant diagrams as part of that change; do not merely append a note saying behavior changed. Keep diagrams readable and split complex flows into focused diagrams rather than growing one overloaded chart.
+- If a storage change introduces, removes, or renames a type/function or changes an invariant, update the component map, source map, and invariant sections where applicable.
+- Before committing, cross-check every documented claim against the final source and tests. Do not document intended or proposed behavior as if it is implemented. If behavior is deliberately deferred or remains a known limitation, label it clearly as such.
+- If a change outside `storage_disk.go` materially changes the storage contract or its assumptions (for example redaction-before-persistence, schema identity, or replay integration), assess whether the architecture guide needs a corresponding update and make it when relevant.
+- Do not edit `docs/storage_disk.md` for unrelated changes. Preserve the repository's CI policy: Markdown-only changes do not trigger CI; when a storage implementation change requires both Go and Markdown updates, the Go changes must trigger the normal CI checks.
+- In handoffs and completion summaries, mention whether the storage architecture guide was updated or reviewed. Never leave a known mismatch between the implementation and its architecture diagrams for a later session to discover.
