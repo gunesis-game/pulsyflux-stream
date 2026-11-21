@@ -217,3 +217,13 @@ func schemaFingerprintsFromIdentities(event, stream, channel schemaIdentity) sch
 		ChannelEffective: channel.Effective,
 	}
 }
+
+// Temporary compatibility adapters for the schema identity layer. Event owns the
+// payload serialization and redaction implementation.
+func encodeSchema[T any](data T, policy RedactionPolicy) ([]byte, schemaIdentity, error) {
+	return encodeEventPayload(data, policy)
+}
+
+func decodeSchema[T any](raw []byte, expected schemaIdentity, policy RedactionPolicy) (T, error) {
+	return decodeEventPayload[T](raw, expected, policy)
+}
