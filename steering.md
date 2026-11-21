@@ -26,6 +26,8 @@ Public API is intended to include:
 - (*Event[T]).SetData(T) error
 - (*Event[T]).Data() T
 
+Type-name derivation is internal; consumers do not call TypeName.
+
 Serialization/deserialization stay package-private (serialize and deserialize[T]) and are intended for Store persistence integration. The stored envelope includes type, data, and time; policy is not stored. Loading requires the caller/store to supply the policy compatible with payload type T.
 
 ## Implementation status\n- The initial policy-aware Event API and private serialization/deserialization are being implemented.\n- The current store.go remains only an in-memory stream registry; durable Save/Load is not implemented yet.\n\n## Compatibility and boundaries
