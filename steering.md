@@ -148,7 +148,6 @@ Do not introduce a public storage API until the internal storage contract and du
 - Markdown-only changes must not trigger CI. Do not claim a CI run occurred for this documentation-only update.
 - Do not claim local Go tests were run unless a local checkout and execution actually occurred. GitHub Actions is the verified source for the latest test/build results.
 ## Mandatory iteration, analysis, and session handoff maintenance
-
 This section is a required operating procedure for every AI implementation session. The purpose is to make the repository, especially this file, the durable source of truth so work can be continued in a fresh AI session without relying on chat history.
 
 ### Required iteration sequence
@@ -297,7 +296,6 @@ If implementation is mid-flight, record the exact stopping point, uncommitted or
 - CI verifies the resulting source using the repository's configured Go 1.27.x toolchain. A local Go 1.23.2 `gofmt` binary was used to prepare the formatting, and the CI formatting check confirms the final committed files are accepted by the configured toolchain.
 - No local Go tests, vet, or build were claimed. GitHub Actions is the verification source.
 - Reviewed `docs/storage_disk.md`; it remains consistent because this iteration was formatting-only. No architecture-document update was needed.- No new functional or test-coverage gap was identified by this formatting-only iteration. The CI coverage result remains 81.9%; this is a measurement, not by itself evidence that every edge case is covered.
-
 ### Next task — define the disk segment directory-durability contract before implementation
 - Known limitation: syncing a segment file does not necessarily make a newly created directory entry durable across sudden power loss. The current writer sync policy should not be described as guaranteeing durable segment creation until this is addressed.
 - First decide and document the required guarantees:
@@ -459,15 +457,38 @@ This section supersedes the earlier pending-choice handoff above. The user selec
 - Windows formatting passed, but the test step failed before producing a profile. PowerShell passed/parsed the command such that Go treated `.out` as a package and reported `no required module provides package .out`. The Windows package test itself reported 80.9%, but the overall command failed due to the extra `.out` package argument. No Windows per-function report or artifact was produced.
 - This is a workflow shell/argument parsing defect, not evidence of a source or test failure. Do not use run #161 as a completed cross-platform coverage comparison.
 
-### Follow-up and current verification
-- Commit `b54bb44bb498a644acfc0f051ce5da21026e4e96` explicitly sets `shell: bash` for the coverage test, vet, and build steps.
-- New push-triggered CI run: [44899535090](https://github.com/gunesis-game/pulsyflux-stream/actions/runs/44899535090), run #162, exact head SHA `b54bb44bb498a644acfc0f051ce5da21026e4e96`. At the time this handoff was written, it was still `in_progress`; do not claim it passed until all jobs and logs are inspected.
-- The original 0.5 percentage-point coverage discrepancy (81.4% Linux vs 80.9% Windows) remains unexplained. Once run #162 succeeds, compare per-function reports/artifacts. Distinguish intentionally OS-specific code (for example Linux directory-sync support vs Windows fail-closed behavior) from genuinely untested shared logic; do not add tests merely to equalize percentages.
-- No local tests or builds are claimed. GitHub Actions is the verification source.
-- This handoff update is Markdown-only and should not trigger CI.
 
-### Next steps
-1. Verify run #162 to completion against the exact SHA above; inspect cleanup and both OS jobs and their complete logs.
-2. Confirm both coverage artifacts uploaded, then compare per-function reports. If needed, inspect the profiles to identify statement-level differences.
-3. Only after the reports identify concrete uncovered behavior, add focused tests or document intentional platform exclusions. Preserve the strict Windows `SyncEachAppend` unsupported behavior.
-4. Append a new handoff with the verified run #162 outcome and concrete coverage comparison.
+## Session handoff — Windows Bash correction verified; coverage delta localized (2026-11-21)
+
+### Exact verification
+- Workflow/source HEAD verified by CI: `b54bb44bb498a644acfc0f051ce5da21026e4e96`.
+- CI run [44899535090](https://github.com/gunesis-game/pulsyflux-stream/actions/runs/44899535090), run #162, completed successfully for that exact SHA.
+- Cleanup job succeeded.
+- Both `Test and build` matrix jobs succeeded. On both Ubuntu and Windows: formatting, race-enabled tests with coverage profile, per-function report generation, artifact upload, `go vet ./...`, and `go build ./...` all passed.
+- Artifacts uploaded successfully: `coverage-ubuntu-latest` (artifact ID `14705706148`) and `coverage-windows-latest` (artifact ID `14705352273`), each with `coverage.out` and `coverage-report.txt`, retained for seven days.
+- Aggregate statement coverage remains **81.4% Linux** and **80.9% Windows**, a 0.5 percentage-point difference.
+- The workflow's explicit Bash setting fixed the Windows PowerShell argument parsing failure seen in run #161. The Windows race test and coverage profile now complete successfully.
+
+### Per-function comparison
+- Shared functions in `channel.go`, `event.go`, `schema.go`, `store.go`, and `stream.go` have matching reported coverage percentages on both platforms.
+- The platform-specific helper differs as expected:
+  - Linux `storage_disk_sync_linux.go`: `syncSegmentDirectory` 75.0%.
+  - Windows `storage_disk_sync_windows.go`: `syncSegmentDirectory` 0.0%; the Windows implementation is intentionally fail-closed/unsupported under strict `SyncEachAppend`.
+  - Both platform capability-check functions are 100.0%.
+- A small number of shared storage functions differ because platform-specific branches are exercised differently:
+  - `openDiskWriter`: Linux 67.9%, Windows 69.8%.
+  - `newSegment`: Linux 88.9%, Windows 77.8%.
+  - `Append`: Linux 85.7%, Windows 81.0%.
+  - `syncLocked`: Linux 100.0%, Windows 66.7%.
+- This is consistent with the Windows contract rejecting strict `SyncEachAppend`, while Linux exercises the directory-sync path. The 0.5-point aggregate gap is small and explained by intentional platform-dependent control flow rather than a broad missing-test discrepancy. Do not add artificial tests solely to force equal aggregate percentages.
+- No profile-level statement-by-statement diff was performed; the comparison above is based on the per-function `go tool cover -func` reports in both job logs. Downloaded profile artifacts are available if a future investigation needs finer attribution.
+
+### Failed attempt retained as history
+- Run #161 (`44899333922`, HEAD `7a071f12bf245cff0c46bb73fa7ed526093f766d`) failed only on Windows because PowerShell parsed the coverage command incorrectly and Go attempted to load `.out` as a package. Linux passed at 81.4%; Windows did not generate a coverage artifact.
+- The fix was to declare Bash explicitly for test, vet, and build steps; run #162 confirms the correction. Do not suppress or remove coverage-profile generation.
+
+### Current state and next work
+- The workflow change is verified. The later `steering.md` documentation-only update does not trigger CI by design; no source/test changes were made.
+- Keep the platform-specific coverage difference documented; do not change storage tests to chase equal percentages.
+- Next implementation work should follow the existing storage handoff: review recovery scanning memory behavior and failure-path coverage before any index work. Continue to preserve Windows strict-sync fail-closed semantics.
+- For any future workflow edits, verify the exact pushed SHA, cleanup job, both OS matrix jobs, reports/artifacts, and full logs before claiming success.
