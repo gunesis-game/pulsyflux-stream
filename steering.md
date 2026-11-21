@@ -90,7 +90,7 @@ Do not introduce a public storage API until the internal storage contract and du
 - Windows research found no documented, supported standard-user Win32/native API sequence for flushing directory namespace metadata with the required crash-durability guarantee. Do not introduce an undocumented directory-handle flush or infer durability from an API call merely returning success. Revisit strict durability through a separately designed architecture or a clearly scoped, user-approved operational requirement.
 - The current cross-platform behavior is intentionally uniform and fail-closed; strict per-append durability remains unavailable rather than being silently weakened.
 
-## Current handoff — storage memory review complete; await Find/Seek contract (2026-11-21)
+## Current handoff — recovery/reader memory review complete; bound encoder allocation next (2026-11-21)
 
 ### Repository and verified checkpoint
 - Repository: `gunesis-game/pulsyflux-stream`; branch: `main` only.
@@ -107,13 +107,16 @@ Do not introduce a public storage API until the internal storage contract and du
 - `scanDiskRecords` processes one frame at a time and retains only the last sequence, valid byte offset, and incomplete-tail state. Its record-processing memory is O(maxRecordBytes), not O(records per segment) or O(segment bytes).
 - `readDiskRecord` and `diskReader.Next` decode and return one record at a time. The decoded `json.RawMessage` payload may add a copy while a frame is decoded/returned.
 - `diskSegments` uses `os.ReadDir`, sorts segment metadata, and returns all segment paths. Thus discovery and reader/writer path metadata are O(number of segment files), even though record processing does not scale with aggregate segment bytes or record count inside a segment. This is a documented metadata cost, not an unbounded record accumulation.
+- **Confirmed adjacent gap:** `encodeDiskRecord` currently calls `json.Marshal(r)` before checking whether the encoded body exceeds `maxRecordBytes`. An oversized caller-supplied payload can therefore cause a large temporary allocation before rejection. This is outside the scanner/reader paths fixed in the verified commit, but it should be bounded in a separate focused change before treating the entire storage write path as memory-bounded.
 - Incomplete final header/body remains recoverable only during writer startup on the active segment. Complete malformed/oversized frames and incomplete tails in non-active segments remain corruption. Reader behavior remains fail-closed and never truncates/skips.
 
-### Next task and prerequisites
-- Do **not** implement an index or Find/Seek yet. There is no concrete user requirement or agreed contract for lookup semantics.
-- Before indexing, obtain a concrete Find/Seek use case and define at least: lookup key(s), whether lookup is per stream/channel or global, ordering guarantees, inclusive/exclusive cursor semantics, behavior across rotations/recovery, index rebuild/corruption behavior, and whether an index is rebuildable cache or durable source of truth.
-- Once that contract exists, inspect the current segment layout and recovery boundary, propose the smallest rebuildable index design, and get agreement before changing the on-disk format or public API.
-- Until then, preserve sequential scan/recovery and do not add SQL, distributed infrastructure, segment pruning, or public storage APIs.
+### Next task: bound encode-side memory before indexing
+1. Review `encodeDiskRecord` and its JSON encoding behavior. Enforce the 64 MiB encoded-body limit before allocating an arbitrarily large intermediate body; preserve valid JSON payload semantics and the existing on-disk framing/checksum contract.
+2. Add focused tests for over-limit payloads, JSON escaping expansion, invalid RawMessage payloads, and boundary-sized valid records. Avoid tests that require unnecessarily large allocations where a smaller injectable limit or helper-level test can prove the bound.
+3. Update `docs/storage_disk.md` in the same code commit if encoding limits or payload semantics change. Preserve compatibility with existing version-1 records.
+4. Push directly to `main`, verify the exact CI SHA and every Linux/Windows job/step, then compare aggregate and per-function coverage from that same run.
+5. After that, do **not** implement an index or Find/Seek until there is a concrete user requirement and agreed lookup contract. Define lookup key(s), scope (stream/channel/global), ordering, cursor semantics, rotation/recovery behavior, index rebuild/corruption behavior, and whether the index is rebuildable cache or durable source of truth. Get agreement before changing the on-disk format or public API.
+- Until those prerequisites exist, preserve sequential scan/recovery and do not add SQL, distributed infrastructure, segment pruning, or public storage APIs.
 - `SyncEachAppend` remains unavailable on both Linux and Windows until a reliable, documented, tested directory-entry durability implementation exists for both. Never reintroduce asymmetric or file-only fallback behavior.
 
 ### Non-goals
