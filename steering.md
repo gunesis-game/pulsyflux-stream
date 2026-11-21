@@ -91,10 +91,11 @@ Do not introduce a public storage API until the internal storage contract and du
 
 ### Repository and verified checkpoint
 - Repository: `gunesis-game/pulsyflux-stream`; work directly on `main`, no branches.
-- Current code HEAD: `3f56fc1a83ade904188079bc951d8d6ea5b25644` (`fix: restore generic schema codec after envelope removal`).
+- Current `main` HEAD before this handoff update: `5ffc7f23adffdd329214b042af0b92879394c890` (documentation-only handoff update). The latest code commit under verification is `3f56fc1a83ade904188079bc951d8d6ea5b25644` (`fix: restore generic schema codec after envelope removal`).
 - This code commit restores `eventSchemaIdentity`, `encodeSchema`, and `decodeSchema` in `schema.go` after commit `720e73e` removed their definitions while leaving tests that call them. Redaction now uses normalized paths; decode checks both base and effective identities.
-- CI verification for exact code SHA `3f56fc1a83ade904188079bc951d8d6ea5b25644` is **unconfirmed**. The available commit-status query returned no statuses, and the available commit-workflow-run query only reports pull-request-triggered runs; it did not expose the push-triggered CI run. Do not infer that CI passed or failed. No local Go test execution is claimed.
-- Linux/Windows aggregate and per-function coverage comparison is pending because the exact-SHA CI run and its artifacts have not been surfaced.
+- CI run #196 (`44913452218`) tested exact code SHA `3f56fc1a83ade904188079bc951d8d6ea5b25644` and **passed**. Both Linux and Windows jobs completed formatting verification, `go test -race -coverprofile=coverage.out ./...`, per-function coverage reporting, artifact upload, `go vet ./...`, and `go build ./...`.
+- Linux and Windows each reported 84.4% aggregate statement coverage. All reported per-function percentages matched across the two platforms; no platform-specific coverage discrepancy was visible in the reports. No profile-level comparison was needed because the reported per-function coverage was identical. Coverage artifacts were uploaded for both platforms.
+- No local Go test execution is claimed; verification was performed by the exact-SHA CI run.
 - The following steering update is documentation-only and is not CI-tested.
 
 ### Changes made
@@ -103,11 +104,11 @@ Do not introduce a public storage API until the internal storage contract and du
 - `decodeSchema` validates the expected base/effective identity before decoding already-redacted JSON.
 
 ### Post-push verification state
-- Exact commit checked: `3f56fc1a83ade904188079bc951d8d6ea5b25644`.
-- Available combined commit statuses: none returned.
-- Available commit-associated workflow runs: none returned; that endpoint is limited to pull-request-triggered runs and therefore does not establish the state of the push-triggered CI workflow.
-- Required checks still to inspect on the exact SHA: non-mutating formatting verification; Linux and Windows race-enabled tests and coverage; per-file coverage reports/artifacts; `go vet ./...`; and `go build ./...`.
-- Once the run is found, inspect every job, meaningful step, and relevant log. Compare Linux and Windows aggregate statement coverage and per-function coverage from that same run; inspect profiles for statement-level attribution where needed. Record whether differences are expected or reveal missing coverage. Do not force percentages to match.
+- Exact code commit checked: `3f56fc1a83ade904188079bc951d8d6ea5b25644`; CI run #196: [44913452218](https://github.com/gunesis-game/pulsyflux-stream/actions/runs/44913452218).
+- Workflow event: `push`; workflow conclusion: `success`; both platform jobs and the cleanup job completed successfully.
+- Linux and Windows both passed non-mutating formatting verification, race-enabled tests, `go vet ./...`, and `go build ./...`.
+- Both platforms reported 84.4% aggregate statement coverage. Every per-function percentage in the two reports matched. Coverage artifacts were uploaded for both platforms; no statement-level investigation was necessary because no cross-platform function discrepancy appeared.
+- The steering update itself is documentation-only and is not CI-tested.
 
 ### Remaining confirmed gaps and risks
 - `storage_disk.go` still persists only `SchemaFingerprint` and `Type`; the intended record contract requires all six independent base/effective fingerprints (data, event, stream, channel layers as defined by the agreed contract) and no duplicate `Type` field.
