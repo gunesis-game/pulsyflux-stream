@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -217,5 +218,25 @@ func TestDiskReaderCloseClosesActiveSegment(t *testing.T) {
 	}
 	if _, err := r.Next(); !errors.Is(err, ErrClosed) {
 		t.Fatalf("Next after Close: %v", err)
+	}
+}
+
+
+func TestDiskSegmentsRejectNumberingGaps(t *testing.T) {
+	for _, names := range [][]string{
+		{"segment-000002.pfs"},
+		{"segment-000001.pfs", "segment-000003.pfs"},
+	} {
+		t.Run(strings.Join(names, "_"), func(t *testing.T) {
+			dir := t.TempDir()
+			for _, name := range names {
+				if err := os.WriteFile(filepath.Join(dir, name), nil, 0o640); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := openDiskReader(dir); err == nil {
+				t.Fatalf("segment gap accepted: %v", names)
+			}
+		})
 	}
 }
