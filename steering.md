@@ -401,3 +401,41 @@ This section supersedes the earlier pending-choice handoff above. The user selec
 2. Keep Windows `SyncEachAppend` fail-closed unless a documented and tested Windows directory-entry durability mechanism becomes available.
 3. Any further storage behavior change must update `docs/storage_disk.md` in the same code iteration, run the Linux+Windows matrix, inspect exact job steps/logs, and then add a fresh Markdown-only handoff update.
 4. Before further work, independently verify current `main` HEAD and latest CI; do not assume this handoff remains the newest state.
+
+
+## Session handoff — CI run retention, supersession, and cross-platform race tests (2026-11-21)
+
+### Repository and verified checkpoint
+- Repository: `gunesis-game/pulsyflux-stream`; branch: `main` only. The user confirmed there will be no working branches.
+- CI workflow implementation commit: `e34aa2cc60ff6c1fcd994e3e5eaf5851e80602dc` (`ci: retain latest runs and cancel superseded workflows`).
+- Exact verified CI run: [44898579893](https://github.com/gunesis-game/pulsyflux-stream/actions/runs/44898579893), run number 160, completed with conclusion `success` for the exact implementation commit above.
+- The prior strict-durability handoff remains the latest storage implementation checkpoint; this CI change did not modify storage code or its documentation.
+
+### CI workflow changes
+- `.github/workflows/ci.yml` now triggers on pushes to `main` and manual `workflow_dispatch` only. The pull-request trigger was removed to reflect the user's main-only workflow.
+- A single workflow-wide concurrency group, `ci-main`, uses `cancel-in-progress: true`. A newer CI run supersedes an in-progress run; GitHub's concurrency scheduler also replaces a pending run in the same group. The overlapping-run cancellation behavior is configured but has not yet been separately stress-tested with deliberately simultaneous pushes.
+- A `cleanup` job runs before the test matrix. It uses the built-in GitHub CLI with `GH_TOKEN: ${{ github.token }}` and requires `actions: write` plus `contents: read`.
+- Cleanup is scoped to `.github/workflows/ci.yml`, not every workflow in the repository. It always preserves the current run and the three newest prior CI runs, deleting older completed CI runs. Older runs that are still active are not deleted. This keeps the four newest CI run records while avoiding deletion of active executions.
+- The test matrix depends on cleanup, so tests do not start until the retention pass completes.
+- The separate `.github/workflows/release.yml` workflow and its run history are intentionally untouched.
+
+### Verified CI results
+- Cleanup job: success. It deleted the historical completed CI runs beyond the four-run retention window. The first cleanup pass took longer because it removed the accumulated historical backlog; steady-state runs should normally delete only the one run that falls outside the four-run window.
+- Linux job `Test and build (ubuntu-latest)`: formatting passed; `go test -race -cover ./...` passed (81.4% coverage); `go vet ./...` passed; `go build ./...` passed.
+- Windows job `Test and build (windows-latest)`: formatting passed; `go test -race -cover ./...` passed (80.9% coverage); `go vet ./...` passed; `go build ./...` passed.
+- The Windows race detector worked on the hosted Windows/amd64 runner with Go 1.27.4 and its configured GCC/cgo environment. No extra compiler-install step was needed.
+- Both matrix jobs checked out exact HEAD `e34aa2cc60ff6c1fcd994e3e5eaf5851e80602dc`. No local test execution is claimed; all verification evidence is from the GitHub Actions run.
+
+### Post-CI analysis and limitations
+- All requested CI behavior is implemented and the complete run is green on both operating systems.
+- The cleanup job is deliberately limited to the CI workflow; Release workflow runs remain visible and are not part of the four-run CI retention count.
+- Active older runs are retained rather than deleted. The concurrency group should cancel superseded CI runs, but an already-cancelled run may remain active briefly until GitHub finishes cancellation; a later cleanup pass will remove it once completed.
+- Cancellation behavior has not been directly observed under concurrent pushes yet. Do not claim a concurrency stress test passed.
+- GitHub-hosted Actions emitted non-blocking Node.js 20 deprecation warnings for `actions/checkout@v4` and `actions/setup-go@v5`; the runner forced those actions onto Node.js 24 and the jobs succeeded. Consider action-version maintenance separately rather than mixing it into this CI retention change.
+
+### Next session
+1. Confirm `main` HEAD and the newest CI run before any further edits.
+2. Keep the main-only trigger policy unless the user changes it.
+3. Observe normal future overlapping pushes to confirm that the newest run cancels superseded work. Do not create branches or run an artificial concurrency test without a reason.
+4. Preserve the global four-run CI retention policy and keep Release workflow history outside its scope.
+5. For any future workflow code change, verify the cleanup job, both OS matrix jobs, exact HEAD SHA, and complete logs; then append a fresh Markdown-only handoff update.
