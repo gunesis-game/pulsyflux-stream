@@ -37,6 +37,15 @@ Maintain a small, typed, concurrency-safe Go event stream. Event redaction is im
 - When a deliberate breaking API change is made, update affected source, tests, examples, and documentation together, and clearly record the API change and its verification state in the current handoff.
 
 ## Public API constraints
+Expected typed event/channel/stream relationship:
+- `EventChannel[TStream]` is the typed logical parent for a family of related streams.
+- One `EventChannel[TStream]` can relate multiple streams: `Stream[TStream, TEvent1]`, `Stream[TStream, TEvent2]`, `Stream[TStream, TEvent3]`, and so on.
+- Every stream registered with a given channel uses that channel's same `TStream`. `TStream` is the channel/stream-family type context and contributes to stream and channel schema identity; it is not the event payload type.
+- Each stream supplies its own `TEvent`, which determines its typed payload and event schema identity. Event instances remain `Event[TEvent]`.
+- Keep stream operations strongly typed for their respective `TEvent`; do not collapse the public API to `Stream[TStream]` or make `EventChannel` non-generic.
+- The channel may relate streams with different event types; do not constrain all streams in one channel to share a single `TEvent`.
+- Preserve private channel instance identity. The generic type relationship and schema fingerprints are not substitutes for the channel's private runtime UUID.
+
 Expected event API:
 - NewRedactionPolicy(exclude ...string) RedactionPolicy
 - NewEvent[T](redactionPolicy RedactionPolicy) (Event[T], error)
@@ -54,6 +63,8 @@ Do not introduce a public storage API until the internal storage contract and du
 - Current traversal support: structs, pointers, slices/arrays of structs. Maps and embedded-field flattening remain out of scope until deliberately designed and tested.
 
 ## Stream behavior constraints
+- Each `Stream[TStream, TEvent]` delivers only `Event[TEvent]` values to its subscribers.
+- A channel can register multiple streams with the same `TStream` and different `TEvent` parameters.
 - Publish sends the full, unredacted event to each active subscriber.
 - A full subscriber buffer rejects Publish atomically with ErrSlowSubscriber; no subscriber receives that rejected event.
 - Publishing with zero subscribers succeeds.
@@ -87,37 +98,47 @@ Do not introduce a public storage API until the internal storage contract and du
 - If work is interrupted, record the exact stopping point, pending checks, uncommitted/unpushed state, and safest next action. Never describe uncommitted work as pushed or unverified work as tested.
 - Keep this file directive-oriented and concise. Do not duplicate README walkthroughs or retain resolved session narratives.
 
-## Current handoff — heterogeneous channels and private identity (2026-11-21)
+## Current handoff — generic channel/stream type relationship (2026-11-21)
 
 ### Repository and verified checkpoint
 - Repository: `gunesis-game/pulsyflux-stream`; work directly on `main`, no branches.
-- Current `main` HEAD and code SHA: `1a498c57dc19493659dabc25400bbddf02bbf83f` (`style: remove trailing blank line from channel test`).
-- CI run #211 (`44914465680`) tested this exact SHA and **passed**. Linux and Windows both passed non-mutating formatting verification, `go test -race -coverprofile=coverage.out ./...`, per-function coverage reporting, artifact upload, `go vet ./...`, and `go build ./...`.
-- Both platforms reported 84.7% aggregate statement coverage. Per-function coverage matched across Linux and Windows; no cross-platform discrepancy was found. Both coverage artifacts were uploaded.
-- No local Go test execution is claimed; CI is the verification source.
-- `docs/storage_disk.md` still matches the version-2 six-fingerprint record implementation.
+- Current `main` HEAD before this steering update: `f504d93a78fcb1994f447d92f93c3951c0236063` (documentation-only steering checkpoint).
+- Latest code SHA with completed CI: `1a498c57dc19493659dabc25400bbddf02bbf83f`; CI run #211 (`44914465680`) completed successfully on Linux and Windows.
+- Both platforms passed non-mutating formatting verification, race-enabled tests with coverage, per-function coverage reporting, artifact upload, vet, and build. Both reported 84.7% aggregate statement coverage and matching per-function coverage. No cross-platform coverage discrepancy was found.
+- No local Go test execution is claimed. This steering-only change is not CI-tested.
+- `docs/storage_disk.md` matches the version-2 six-fingerprint record implementation.
 
-### Changes made
-- Confirmed the heterogeneous channel decision: one `EventChannel` can own many different typed streams. Keep `EventChannel` non-generic; `New[T]` and `Get[T]` remain generic functions. This avoids pretending one channel has one payload type and fits Go's lack of independently generic methods.
-- Made the channel UUID private (`id`). Removed public `ID` and `NewEventChannelWithID`; channel identity can no longer be inspected, supplied, or reconstructed by consumers.
-- The in-memory registry still keys streams by private channel UUID plus reflected event type. Duplicate registration of the same event type in one channel remains rejected; different event types remain independent.
-- Updated tests and README to cover/document heterogeneous registration and private identity.
+### Agreed type architecture
+- The user confirmed the intended relationship:
+  ```go
+  EventChannel[TStream]
+      |
+      +-- Stream[TStream, TEvent1] -- Event[TEvent1]
+      |
+      +-- Stream[TStream, TEvent2] -- Event[TEvent2]
+      |
+      +-- Stream[TStream, TEvent3] -- Event[TEvent3]
+  ```
+- One `EventChannel[TStream]` relates many streams. All streams associated with that channel share the same `TStream`; each stream may have a different `TEvent`.
+- `TStream` is the stream-family/channel type context and links each stream back to `EventChannel[TStream]`. It is not an event payload type.
+- `TEvent` is the event payload type for an individual stream. Events remain `Event[TEvent]`, and subscriptions/publication remain typed to that event type.
+- Do not revert to non-generic `EventChannel`, `Stream[TStream]`, or the current `Stream[T]` model. The earlier handoff statement that `EventChannel` must be non-generic and that generic free functions should replace the channel relationship is superseded and incorrect.
+- The exact registration/storage mechanism for holding multiple differently typed streams under one generic channel remains to be designed. Preserve strong typing at the public stream API; decide deliberately how the internal registry represents heterogeneous stream instances.
+- Fingerprint dependency direction must reflect the type relationship: Event identity is based on `TEvent` and event-level policy; Stream identity incorporates the shared `TStream` context and its `TEvent` dependency; Channel identity incorporates its `TStream` context and the deterministic collection of registered stream schema identities. Exact descriptor composition and effective-fingerprint behavior still require a detailed contract before implementation.
 
-### Post-CI analysis
-- Exact-SHA CI run #211 completed successfully on both platforms. Formatting, race tests, coverage, vet, and build all passed.
-- Linux and Windows both reported 84.7% aggregate statement coverage. All per-function percentages matched. No profile-level comparison was needed because no per-function platform differences appeared.
-- A prior push failed only the formatting gate due to one trailing blank line in `stream_test.go`; it was removed and the final exact-SHA run passed. This is resolved, not a pending action.
-
-### Remaining confirmed gaps and unresolved design
-- Runtime schema identities are still only fully implemented for Event. Stream and Channel base/effective identities are not yet propagated into runtime objects, so the six disk fingerprints are not yet sourced end-to-end from the live Event → Stream → Channel composition.
-- Redaction policy is currently supplied per Event, not configured on a Stream. Before deriving Stream/Channel effective fingerprints, decide and document how varying event redaction policies within one typed stream affect the effective identities. Do not silently freeze the first policy or allow identity drift without a contract.
+### Existing implementation state (not yet aligned)
+- Current `EventChannel` is non-generic, current `Stream[T]` is generic only on the event payload, and current `Event[T]` is generic on the payload. The source therefore does not yet implement the agreed architecture.
+- Channel UUID is private; keep it private through the generic API change.
+- Runtime schema identities are not yet composed end-to-end across Event, Stream, and Channel. The version-2 disk record already carries six fingerprint fields (Event, Stream, Channel base/effective); runtime objects must eventually supply them.
+- Redaction policy is currently supplied per Event. Define how differing policies across events/streams affect Stream and Channel effective fingerprints; do not silently freeze one policy or permit undocumented identity drift.
 - Private storage location/ownership and writer lifecycle per logical channel remain unresolved. Do not invent a path, global directory, or public configuration API. Resolve before connecting recorder lifecycle to Publish.
-- `SyncEachAppend` remains unsupported on Linux and Windows pending documented and tested directory-entry durability.
+- `SyncEachAppend` remains unsupported pending documented and tested directory-entry durability.
 
 ### Next task
-1. Design the schema dependency contract for heterogeneous channels: Event base/effective identities, Stream base/effective identities derived from Event dependencies, and Channel base/effective identities derived deterministically from the set of registered typed streams. Explicitly define the effect of per-Event redaction policies on Stream/Channel effective identities.
-2. Implement the agreed identity composition in `event.go`, `stream.go`, `channel.go`, `store.go`, and `schema.go`; keep hashing/composition centralized in `schema.go`. Keep UUIDs private and separate from schema fingerprints.
-3. Add tests for two or more differently typed streams, deterministic channel identity independent of registration order, dependency changes, redaction-policy behavior, and schema mismatch. Ensure the six disk fingerprints can be populated from runtime identities without inventing storage ownership/lifecycle.
-4. Update README and relevant docs with any intentional API/contract changes. Verify exact-SHA Linux/Windows CI and compare aggregate plus per-function coverage. Do not trigger the manually controlled release workflow.
+1. Design the generic public API and registration contract for `EventChannel[TStream]` owning many `Stream[TStream, TEvent]` instances with different `TEvent` types. Define construction, lookup/registration, duplicate rules, channel close behavior, and how the internal registry safely represents heterogeneous stream types without weakening public typing.
+2. Define schema descriptors and deterministic base/effective fingerprint composition for Event, Stream, and Channel, including the shared `TStream` dependency, each `TEvent` dependency, channel stream-set ordering, and per-Event redaction-policy variation.
+3. Implement the agreed API and identity composition in `event.go`, `stream.go`, `channel.go`, `store.go`, and `schema.go`, plus affected tests and docs. Preserve stream concurrency/delivery semantics and private UUID identity.
+4. Test at least three differently typed streams under one channel, typed publish/subscribe, duplicate registration behavior, deterministic channel fingerprints independent of registration order, dependency changes, redaction-policy behavior, and schema mismatch.
+5. Verify the exact code SHA through Linux/Windows CI and compare aggregate plus per-function coverage. Update this handoff after CI analysis. Do not trigger the manually controlled release workflow.
 
-Acceptance: heterogeneous typed registration remains intact; Event/Stream/Channel each have base/effective schema identities with deterministic dependency composition; policy changes follow the explicitly documented contract; channel instance UUID remains private; the six disk fingerprints are derivable from the runtime objects; and exact code SHA passes Linux/Windows CI with coverage comparison.
+Acceptance: the public API expresses `EventChannel[TStream]` → many `Stream[TStream, TEvent]` → `Event[TEvent]` relationships; one channel supports different event types while preserving typed stream operations; Event/Stream/Channel base/effective identities compose deterministically; channel UUID remains private; the six disk fingerprints are derivable from runtime identities; and exact-SHA Linux/Windows CI passes with documented coverage comparison.
