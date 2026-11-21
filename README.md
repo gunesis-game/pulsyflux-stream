@@ -63,12 +63,12 @@ func main() {
 ## Event channels and streams
 
 - `NewEventChannel()` creates a logical grouping with a random UUID.
-- `NewEventChannelWithID(id)` reconstructs a grouping with a non-zero UUID.
 - `New[T](channel, bufferSize)` registers a typed stream in that grouping. It errors for nil/invalid/closed channels, non-positive buffer sizes, or duplicate registration of T within the same channel.
 - `Get[T](channel)` returns the registered stream or nil if unavailable.
-- A channel can own multiple event types. The same event type can be registered in different channel IDs without sharing a stream.
+- A channel can own multiple event types. `EventChannel` is intentionally non-generic; `New[T]` and `Get[T]` are generic registry functions so one channel can contain many differently typed streams.
+- Channel UUIDs are private implementation identities. Consumers cannot inspect, supply, or reconstruct them.
 - Channel identity is not storage: the registry is process-local and in-memory.
-- `EventChannel.Close()` closes its registered streams and prevents new registrations through that instance. It is idempotent. A new instance can reuse the UUID after closure.
+- `EventChannel.Close()` closes its registered streams and prevents new registrations through that instance. It is idempotent.
 
 ## Events and redaction
 
