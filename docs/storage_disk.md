@@ -70,7 +70,7 @@ flowchart TB
 | `decodeDiskRecord` | Validate and decode one complete frame | Checks magic, length, checksum, JSON, version, and required fields |
 | `diskSegments` | Discover and order segment paths | Rejects malformed `.pfs` names and numbering gaps |
 | `diskWriter` | Append and rotate segments | Serializes calls with a mutex; sequence is writer-owned |
-| `scanDiskRecords` | Inspect records during writer startup | Allows only an incomplete trailing frame; rejects complete corruption |
+| `scanDiskRecords` | Inspect records during writer startup | Streams one frame at a time; retains only the last sequence and valid byte offset |
 | `diskReader` | Read all segments sequentially | Opens lazily and retains only the current decoded frame |
 
 ## 3. On-disk record format
@@ -161,7 +161,8 @@ flowchart TD
 
 - With no segment files, it creates `segment-000001.pfs`.
 - With existing segments, it scans **every** segment in order, not just the last one.
-- Sequences must increase strictly across segment boundaries.
+- Sequences must increase strictly within each segment and across segment boundaries.
+- The scanner returns only the segment's last sequence, last valid byte offset, and incomplete-tail status; it does not accumulate decoded records.
 - An incomplete trailing frame is recoverable only in the final/active segment.
 - An incomplete frame in any earlier segment is treated as corruption.
 - If the active segment has an incomplete tail, it is truncated to the last complete frame's byte offset.
@@ -334,7 +335,7 @@ flowchart TD
 
 The reader retains the segment path list and one decoded record/frame at a time. It does not load an entire segment into memory.
 
-The startup recovery scanner has a different current profile: `scanDiskRecords` currently accumulates decoded records in a slice for each segment. That is a known memory-scaling concern during writer reopen; it is not how the sequential reader behaves.
+Writer startup recovery is also streaming: `scanDiskRecords` validates one frame at a time and retains only the last sequence, valid byte offset, and incomplete-tail state. Recovery memory is therefore bounded by the largest individual frame rather than the number of records in a segment.
 
 ## 8. Recovery versus normal reading
 
@@ -369,7 +370,7 @@ These are the rules that the implementation and its tests are protecting.
 - There is no public storage API in this file.
 - There is no index in this implementation. Writer recovery scans segment contents to rebuild the next sequence.
 - There is no segment pruning or compaction; the current segment validator expects the full sequence beginning at segment 1.
-- The scanner's decoded-record slice is the next obvious recovery memory optimization: it can be changed to retain only the last sequence, valid byte offset, and incomplete-tail state while preserving all validation rules.
+- Startup recovery validates each frame incrementally and retains only the last sequence, valid byte offset, and incomplete-tail state; memory does not grow with the number of records in a segment.
 - Keep the diagrams and this document aligned with the implementation when frame format, recovery behavior, or writer/reader lifecycle changes.
 
 ## 11. Source map

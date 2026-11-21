@@ -34,10 +34,49 @@ func TestDiskRecordRoundTripChecksum(t *testing.T) {
 func TestScanIncompleteTailAndRejectCorruption(t *testing.T) {
 	frame, err := encodeDiskRecord(testDiskRecord(1))
 	if err != nil { t.Fatal(err) }
-	records, offset, tail, err := scanDiskRecords(bytes.NewReader(append(frame, []byte("PFS")...)))
-	if err != nil || len(records) != 1 || offset != int64(len(frame)) || !tail { t.Fatalf("scan: count=%d offset=%d tail=%v err=%v", len(records), offset, tail, err) }
+	lastSequence, offset, tail, err := scanDiskRecords(bytes.NewReader(append(frame, []byte("PFS")...)))
+	if err != nil || lastSequence != 1 || offset != int64(len(frame)) || !tail { t.Fatalf("scan: lastSequence=%d offset=%d tail=%v err=%v", lastSequence, offset, tail, err) }
 	bad := append([]byte(nil), frame...); bad[0] = 'X'
 	if _, _, _, err := scanDiskRecords(bytes.NewReader(bad)); !errors.Is(err, errRecordCorrupt) { t.Fatalf("corruption accepted: %v", err) }
+}
+
+func TestScanDiskRecordsTracksSequenceWithBoundedState(t *testing.T) {
+	var data bytes.Buffer
+	const count = 4096
+	for sequence := uint64(1); sequence <= count; sequence++ {
+		frame, err := encodeDiskRecord(testDiskRecord(sequence))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := data.Write(frame); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	lastSequence, offset, tail, err := scanDiskRecords(&data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lastSequence != count || offset != int64(data.Len()) || tail {
+		t.Fatalf("scan: lastSequence=%d offset=%d tail=%v; want sequence=%d offset=%d tail=false",
+			lastSequence, offset, tail, count, data.Len())
+	}
+}
+
+func TestScanDiskRecordsRejectsSequenceRegression(t *testing.T) {
+	first, err := encodeDiskRecord(testDiskRecord(2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := encodeDiskRecord(testDiskRecord(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, _, err = scanDiskRecords(bytes.NewReader(append(first, second...)))
+	if !errors.Is(err, errRecordCorrupt) {
+		t.Fatalf("sequence regression accepted: %v", err)
+	}
 }
 
 type failingDiskOutput struct {

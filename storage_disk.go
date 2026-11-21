@@ -73,27 +73,27 @@ func decodeDiskRecord(frame []byte) (diskRecord, error) {
 
 // scanDiskRecords only tolerates a short trailing frame; checksum or framing
 // corruption in a complete frame is returned to the caller.
-func scanDiskRecords(rd io.Reader) ([]diskRecord, int64, bool, error) {
-	var out []diskRecord
+func scanDiskRecords(rd io.Reader) (uint64, int64, bool, error) {
+	var lastSequence uint64
 	var offset int64
 	for {
 		h := make([]byte, recordHeaderBytes)
 		n, err := io.ReadFull(rd, h)
-		if err == io.EOF && n == 0 { return out, offset, false, nil }
-		if err == io.ErrUnexpectedEOF || (err == io.EOF && n > 0) { return out, offset, true, nil }
-		if err != nil { return out, offset, false, err }
-		if !bytes.Equal(h[:4], recordMagic[:]) { return out, offset, false, fmt.Errorf("%w at byte %d: magic", errRecordCorrupt, offset) }
+		if err == io.EOF && n == 0 { return lastSequence, offset, false, nil }
+		if err == io.ErrUnexpectedEOF || (err == io.EOF && n > 0) { return lastSequence, offset, true, nil }
+		if err != nil { return lastSequence, offset, false, err }
+		if !bytes.Equal(h[:4], recordMagic[:]) { return lastSequence, offset, false, fmt.Errorf("%w at byte %d: magic", errRecordCorrupt, offset) }
 		size := int(binary.BigEndian.Uint32(h[4:8]))
-		if size > maxRecordBytes { return out, offset, false, fmt.Errorf("%w at byte %d: oversized frame", errRecordCorrupt, offset) }
+		if size > maxRecordBytes { return lastSequence, offset, false, fmt.Errorf("%w at byte %d: oversized frame", errRecordCorrupt, offset) }
 		rest := make([]byte, size+recordChecksumBytes)
 		n, err = io.ReadFull(rd, rest)
-		if err == io.EOF || err == io.ErrUnexpectedEOF { return out, offset, true, nil }
-		if err != nil { return out, offset, false, err }
+		if err == io.EOF || err == io.ErrUnexpectedEOF { return lastSequence, offset, true, nil }
+		if err != nil { return lastSequence, offset, false, err }
 		frame := append(h, rest...)
-		r, err := decodeDiskRecord(frame)
-		if err != nil { return out, offset, false, fmt.Errorf("scan byte %d: %w", offset, err) }
-		if len(out) > 0 && r.Sequence <= out[len(out)-1].Sequence { return out, offset, false, fmt.Errorf("%w: non-increasing sequence", errRecordCorrupt) }
-		out = append(out, r)
+		record, err := decodeDiskRecord(frame)
+		if err != nil { return lastSequence, offset, false, fmt.Errorf("scan byte %d: %w", offset, err) }
+		if record.Sequence <= lastSequence { return lastSequence, offset, false, fmt.Errorf("%w: non-increasing sequence", errRecordCorrupt) }
+		lastSequence = record.Sequence
 		offset += int64(len(frame))
 	}
 }
@@ -140,18 +140,18 @@ func openDiskWriter(dir string, opts diskWriterOptions) (*diskWriter, error) {
 	for i, path := range paths {
 		f, err := os.Open(path)
 		if err != nil { return nil, err }
-		records, valid, tail, scanErr := scanDiskRecords(f)
+		lastSequence, valid, tail, scanErr := scanDiskRecords(f)
 		closeErr := f.Close()
 		if scanErr != nil { return nil, scanErr }
 		if closeErr != nil { return nil, closeErr }
 		if tail && i != len(paths)-1 {
 			return nil, fmt.Errorf("%w: incomplete tail in non-active segment %q", errRecordCorrupt, filepath.Base(path))
 		}
-		for _, record := range records {
-			if record.Sequence <= w.nextSequence {
+		if lastSequence != 0 {
+			if lastSequence <= w.nextSequence {
 				return nil, fmt.Errorf("%w: non-increasing sequence across segments", errRecordCorrupt)
 			}
-			w.nextSequence = record.Sequence
+			w.nextSequence = lastSequence
 		}
 		if i == len(paths)-1 {
 			f, err := os.OpenFile(path, os.O_RDWR, 0o640)
