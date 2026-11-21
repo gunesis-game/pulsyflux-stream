@@ -113,6 +113,63 @@ func TestDiskWriterAppendFailureIsSticky(t *testing.T) {
 	}
 }
 
+func TestDiskWriterFlushAndSyncFailuresAreSticky(t *testing.T) {
+	operations := map[string]func(*diskWriter) error{
+		"flush": (*diskWriter).Flush,
+		"sync":  (*diskWriter).Sync,
+	}
+	for name, operation := range operations {
+		t.Run(name, func(t *testing.T) {
+			writer, err := openDiskWriter(t.TempDir(), diskWriterOptions{MaxSegmentBytes: 4096})
+			if err != nil {
+				t.Fatal(err)
+			}
+			injected := errors.New("injected buffered I/O failure")
+			writer.buf = bufio.NewWriterSize(failingDiskOutput{err: injected}, 64)
+			if _, err := writer.buf.Write([]byte("pending")); err != nil {
+				t.Fatal(err)
+			}
+
+			firstErr := operation(writer)
+			if !errors.Is(firstErr, injected) {
+				t.Fatalf("%s error = %v, want injected failure", name, firstErr)
+			}
+			_, _, appendErr := writer.Append(uuid.New(), uuid.New(), "schema", "event", time.Now(), []byte(`{"v":1}`))
+			if appendErr != firstErr {
+				t.Fatalf("append did not return sticky error: first=%v append=%v", firstErr, appendErr)
+			}
+			if closeErr := writer.Close(); !errors.Is(closeErr, injected) {
+				t.Fatalf("close did not preserve sticky error: %v", closeErr)
+			}
+		})
+	}
+}
+
+func TestDiskWriterRotationFlushFailureIsSticky(t *testing.T) {
+	writer, err := openDiskWriter(t.TempDir(), diskWriterOptions{MaxSegmentBytes: 4096})
+	if err != nil {
+		t.Fatal(err)
+	}
+	injected := errors.New("injected rotation flush failure")
+	writer.buf = bufio.NewWriterSize(failingDiskOutput{err: injected}, 64)
+	if _, err := writer.buf.Write([]byte("pending")); err != nil {
+		t.Fatal(err)
+	}
+	writer.size = writer.maxBytes
+
+	sequence, _, firstErr := writer.Append(uuid.New(), uuid.New(), "schema", "event", time.Now(), []byte(`{"v":1}`))
+	if sequence != 0 || !errors.Is(firstErr, injected) {
+		t.Fatalf("rotation append: sequence=%d err=%v", sequence, firstErr)
+	}
+	_, _, secondErr := writer.Append(uuid.New(), uuid.New(), "schema", "event", time.Now(), []byte(`{"v":2}`))
+	if secondErr != firstErr {
+		t.Fatalf("append did not return sticky rotation error: first=%v second=%v", firstErr, secondErr)
+	}
+	if closeErr := writer.Close(); !errors.Is(closeErr, injected) {
+		t.Fatalf("close did not preserve rotation error: %v", closeErr)
+	}
+}
+
 func TestDiskWriterSequenceTailRecoveryAndRollover(t *testing.T) {
 	dir := t.TempDir()
 	w, err := openDiskWriter(dir, diskWriterOptions{MaxSegmentBytes: 220})
