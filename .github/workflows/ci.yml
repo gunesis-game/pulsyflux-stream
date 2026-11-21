@@ -1,0 +1,107 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**/*.md'
+  workflow_dispatch:
+
+concurrency:
+  group: ci-main
+  cancel-in-progress: true
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  cleanup:
+    name: Retain latest four CI runs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete older completed runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mapfile -t runs < <(
+            gh api --paginate \
+              "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?per_page=100" \
+              --jq '.workflow_runs[] | [.id, .status] | @tsv'
+          )
+
+          retained=0
+          for run in "${runs[@]}"; do
+            IFS=$'\t' read -r run_id status <<< "$run"
+
+            # Always preserve this run, then preserve the three newest prior runs.
+            if [[ "$run_id" == "$GITHUB_RUN_ID" ]]; then
+              continue
+            fi
+
+            if (( retained < 3 )); then
+              ((retained += 1))
+              continue
+            fi
+
+            if [[ "$status" == "completed" ]]; then
+              echo "Deleting old completed CI run $run_id"
+              gh api --method DELETE \
+                "repos/${GITHUB_REPOSITORY}/actions/runs/$run_id"
+            else
+              echo "Keeping run $run_id because its status is $status"
+            fi
+          done
+
+  test:
+    name: Test and build (${{ matrix.os }})
+    needs: cleanup
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.x'
+          cache: true
+      - name: Verify formatting
+        shell: bash
+        run: |
+          files="$(gofmt -l .)"
+          if [ -n "$files" ]; then
+            echo "These Go files need gofmt:"
+            echo "$files"
+            exit 1
+          fi
+      - name: Run race tests and collect coverage
+        shell: bash
+        run: go test -race -coverprofile=coverage.out ./...
+      - name: Print per-file coverage
+        shell: bash
+        run: |
+          go tool cover -func=coverage.out | tee coverage-report.txt
+          {
+            echo "### Coverage (${{ matrix.os }})"
+            echo '--- coverage details ---'
+            cat coverage-report.txt
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload coverage profile and report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.os }}
+          path: |
+            coverage.out
+            coverage-report.txt
+          if-no-files-found: error
+          retention-days: 7
+      - name: Run vet
+        shell: bash
+        run: go vet ./...
+      - name: Build package
+        shell: bash
+        run: go build ./...
