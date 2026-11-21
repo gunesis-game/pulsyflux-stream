@@ -33,11 +33,11 @@ var errRecordCorrupt = errors.New("stream: corrupt storage record")
 var errDirectorySyncUnsupported = errors.New("stream: SyncEachAppend requires durable directory sync, which is not currently supported")
 
 type schemaFingerprints struct {
-	EventBase string
-	EventEffective string
-	StreamBase string
+	EventBase       string
+	EventEffective  string
+	StreamBase      string
 	StreamEffective string
-	ChannelBase string
+	ChannelBase     string
 	ChannelEffective string
 }
 
@@ -48,19 +48,19 @@ func (s schemaFingerprints) valid() bool {
 }
 
 type diskRecord struct {
-	Version           uint16
-	EventID           uuid.UUID
-	StreamID          uuid.UUID
-	ChannelID         uuid.UUID
-	Sequence          uint64
-	Timestamp         int64
-	EventBaseFingerprint       string
-	EventEffectiveFingerprint string
-	StreamBaseFingerprint      string
-	StreamEffectiveFingerprint string
-	ChannelBaseFingerprint     string
+	Version                     uint16
+	EventID                     uuid.UUID
+	StreamID                    uuid.UUID
+	ChannelID                   uuid.UUID
+	Sequence                    uint64
+	Timestamp                   int64
+	EventBaseFingerprint        string
+	EventEffectiveFingerprint   string
+	StreamBaseFingerprint       string
+	StreamEffectiveFingerprint  string
+	ChannelBaseFingerprint      string
 	ChannelEffectiveFingerprint string
-	Payload           json.RawMessage
+	Payload                     json.RawMessage
 }
 
 // jsonStringEncodedSize returns the exact byte count encoding/json uses for a
