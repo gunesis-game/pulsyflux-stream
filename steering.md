@@ -4,7 +4,7 @@
 Maintain a small, typed, concurrency-safe Go event stream. Event redaction is implemented for the private serialization boundary. Durable storage, indexing, schema cataloging, and replay are internal capabilities to be implemented incrementally while preserving the lightweight live-stream core.
 
 ## Ownership boundaries
-- **Event:** owns typed payload, derived event type identity, internal timestamp, redaction policy, payload assignment/validation, and private serialization/deserialization.
+- **Event:** owns typed payload, internal timestamp, redaction policy, payload assignment/validation, and event lifecycle. Schema-aware serialization/deserialization and event type identity are centralized in `schema.go`.
 - **Stream:** owns concurrent delivery of complete in-memory events. Never redact during Publish.
 - **Channel / registry:** owns logical grouping and in-memory typed stream registration. Channel UUID identity is internal infrastructure, not a public persistence contract.
 - **Schema fingerprinting:** privately derives deterministic structural fingerprints for payload/event, stream, and channel schema layers. Fingerprints identify definitions, not runtime instances. Never expose fingerprint values or internal UUIDs in the consumer API.
