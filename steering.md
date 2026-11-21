@@ -13,7 +13,11 @@ Maintain a small, typed, concurrency-safe Go event stream. Event redaction is im
 
 ## Identity and schema invariants
 - Keep event, stream, and channel instance UUIDs internal. Consumers must not inspect, generate, or persist these IDs.
-- Instance identity is distinct from schema identity. Runtime instances must not share history merely because they share a schema fingerprint.
+- Instance identity is distinct from schema identity. Runtime UUIDs identify the recovered or newly created channel/stream instances; schema fingerprints identify the logical schema used to resolve them. A persisted record carries both. Do not substitute a schema fingerprint for the private instance UUID.
+- `TStream` is itself the channel-family schema. Its deterministic base schema fingerprint is the internal, globally comparable lookup identity used by `NewEventChannel[TStream]` to resolve the logical channel's persisted record. The consumer does not supply an ID or decide whether the channel is new or previously persisted.
+- Fingerprint-based resolution is internal package/storage behaviour. Do not expose public Open/Find/Search operations or require consumers to inspect storage records. The package transparently recovers the existing private channel UUID and metadata when the `TStream` fingerprint is already present; otherwise it creates a new private channel identity and record.
+- Keep the `TStream` lookup fingerprint distinct from the aggregate Channel schema fingerprint. The former identifies the channel-family schema for initial resolution; the latter composes the channel context and registered stream schemas and is persisted/validated as record schema identity. Stream-level schema identity similarly resolves the appropriate persisted stream identity.
+- SHA-256 fingerprints are deterministic and collision-resistant, not a mathematical guarantee of uniqueness. When resolving a fingerprint, validate the canonical descriptor/identity in the persisted metadata rather than assuming a hash match alone proves equivalence.
 - Structural schema fingerprints are private deterministic SHA-256 hashes of canonical descriptors, layered as data → event → stream → channel with an explicit fingerprint-format version. Never hash raw memory, rely on unstable reflection strings, or use random UUIDs as schema fingerprints.
 - Descriptors capture exported serialized fields, field types, and JSON tags; omit unexported and json:"-" fields; normalize struct field order by JSON field name. Struct names/package paths are omitted for structural equivalence; named scalar types retain name/package identity. Descriptor/fingerprint changes are versioned changes.
 - Fingerprints detect structural definition changes; they do not provide migrations or prove semantic compatibility. Current descriptors do not capture custom MarshalJSON/UnmarshalJSON behavior or external codec semantics.
@@ -44,7 +48,9 @@ Expected typed event/channel/stream relationship:
 - Each stream supplies its own `TEvent`, which determines its typed payload and event schema identity. Event instances remain `Event[TEvent]`.
 - Keep stream operations strongly typed for their respective `TEvent`; do not collapse the public API to `Stream[TStream]` or make `EventChannel` non-generic.
 - The channel may relate streams with different event types; do not constrain all streams in one channel to share a single `TEvent`.
-- Preserve private channel instance identity. The generic type relationship and schema fingerprints are not substitutes for the channel's private runtime UUID.
+- `NewEventChannel[TStream]` is the single consumer-facing channel creation entry point. It must transparently resolve an existing channel by the `TStream` base schema fingerprint or create a new one; callers must not choose between create/open, supply UUIDs, or perform find/search operations.
+- `New[TStream, TEvent](channel, bufferSize)` remains the stream registration entry point. Internally it resolves an existing stream using its schema identity and restores its private stream UUID/metadata, or creates a new stream identity when no persisted match exists. The consumer does not need to know whether the stream was previously persisted.
+- Preserve private channel and stream instance identities. The generic type relationship and schema fingerprints are not substitutes for the runtime UUIDs. Storage lookup/index mechanics and constructor error propagation must be designed internally; do not expose storage APIs to solve them.
 
 Expected event API:
 - NewRedactionPolicy(exclude ...string) RedactionPolicy
@@ -69,7 +75,7 @@ Do not introduce a public storage API until the internal storage contract and du
 - A full subscriber buffer rejects Publish atomically with ErrSlowSubscriber; no subscriber receives that rejected event.
 - Publishing with zero subscribers succeeds.
 - Preserve concurrency safety for Subscribe, Publish, cancellation, unsubscribe, and Close.
-- Channel identity is logical identity, not durable storage by itself.
+- Channel identity is logical identity, not durable storage by itself. Its `TStream` base fingerprint provides the internal recovery key; its private UUID identifies the particular persisted channel instance. Channel creation/recovery must remain transparent to consumers.
 
 ## Mandatory implementation and CI rules
 - Work directly on `main`. Do not create branches unless the user explicitly asks.
@@ -135,11 +141,22 @@ Do not introduce a public storage API until the internal storage contract and du
 - `SyncEachAppend` remains unsupported pending a reliable, documented, tested directory-entry durability contract on both Linux and Windows.
 - Event policy variation is defined per record. Other streams in the same channel contribute their empty-policy effective identity when computing that record's Channel effective fingerprint.
 
-### Next task
-1. Design private storage ownership and writer lifecycle per logical channel: who creates/owns the writer, how it is closed, how errors propagate, and how a channel's private UUID and stream/event IDs enter records. Do not invent a filesystem path or public configuration API.
-2. Once ownership is agreed, connect `Stream.schemaFingerprintsFor(event)` and the redacted payload to `diskWriter.Append` without moving schema/redaction responsibilities into the storage layer.
-3. Add end-to-end tests for append/replay with all six fingerprints, per-event redaction changes, multiple streams in one channel, channel close, and writer failures.
-4. Keep `SyncEachAppend` unsupported until cross-platform directory-entry durability is explicitly designed and tested.
-5. Verify each code-changing SHA through Linux/Windows CI and compare aggregate plus per-function coverage. Do not trigger the manually controlled release workflow.
+### Agreed direction: transparent schema-fingerprint recovery
+- The consumer uses one public channel entry point: `NewEventChannel[TStream]()`. There is no separate public create/open choice and no public channel Find/Search operation.
+- Internally, derive the deterministic base schema fingerprint for `TStream`. Use it to resolve the logical channel's persisted record. If found, recover its private channel UUID and metadata; if absent, create a new private UUID and initialise the channel record.
+- The `TStream` base fingerprint is the channel-family lookup identity. Do not confuse it with the aggregate Channel base/effective fingerprints, which compose the channel context and registered stream schemas for record identity.
+- `New[TStream, TEvent](channel, bufferSize)` similarly resolves or creates the stream's private identity using the stream schema identity. The consumer does not need to know whether a matching stream record already exists.
+- Persisted fingerprints and canonical descriptors are internal recovery metadata. Fingerprints are deterministic and collision-resistant; verify canonical identity on a match rather than claiming mathematical collision impossibility.
+- The package/storage layer owns lookup, indexing/catalog use, recovery, UUID restoration, and creation. Do not expose storage records, IDs, or lookup operations in the public API.
+- The exact storage namespace/index mechanics, channel constructor error propagation, writer ownership/lifecycle, and behaviour when multiple persisted records claim the same lookup fingerprint remain to be designed. Do not silently invent a public key or filesystem path.
 
-Acceptance: generic channel/stream typing remains intact; all six fingerprints are deterministically derivable from runtime Event/Stream/Channel identities; disk records receive those identities without storage owning schema policy; per-channel writer ownership/lifecycle is explicit; and exact-SHA Linux/Windows CI passes with coverage comparison.
+### Next task
+1. Design the internal channel resolver used by `NewEventChannel[TStream]`: derive the `TStream` base fingerprint, resolve persisted channel metadata, validate the canonical descriptor, restore the private channel UUID when present, or atomically create a new channel record when absent. Define concurrency/race behaviour for simultaneous constructors resolving the same schema.
+2. Design stream recovery in `New[TStream, TEvent]`: resolve by stream schema identity within the recovered channel, restore or create the private stream UUID, and preserve the existing typed in-memory registry/duplicate semantics.
+3. Settle private per-channel storage ownership and writer lifecycle: creation/ownership, close behaviour, error propagation, and how private channel/stream/event IDs plus six schema fingerprints enter records. Do not invent a filesystem path or public configuration API.
+4. Connect `Stream.schemaFingerprintsFor(event)` and the redacted payload to `diskWriter.Append` without moving schema/redaction responsibilities into storage.
+5. Add end-to-end tests for automatic channel/stream recovery, concurrent same-schema channel construction, append/replay with all six fingerprints, per-event redaction changes, multiple streams in one channel, channel close, and writer failures.
+6. Keep `SyncEachAppend` unsupported until cross-platform directory-entry durability is explicitly designed and tested.
+7. Verify each code-changing SHA through Linux/Windows CI and compare aggregate plus per-function coverage. Do not trigger the manually controlled release workflow.
+
+Acceptance: consumers use the same public constructors whether records exist or not; `TStream` base fingerprint transparently resolves the logical channel; stream schema identity transparently resolves stream identity; private UUIDs are restored rather than exposed; aggregate six-fingerprint record identity and redaction boundaries remain intact; and exact-SHA Linux/Windows CI passes with coverage comparison.
