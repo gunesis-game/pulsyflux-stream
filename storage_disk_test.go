@@ -53,13 +53,14 @@ func TestScanDiskRecordsTracksSequenceWithBoundedState(t *testing.T) {
 		}
 	}
 
+	wantOffset := int64(data.Len())
 	lastSequence, offset, tail, err := scanDiskRecords(&data)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if lastSequence != count || offset != int64(data.Len()) || tail {
+	if lastSequence != count || offset != wantOffset || tail {
 		t.Fatalf("scan: lastSequence=%d offset=%d tail=%v; want sequence=%d offset=%d tail=false",
-			lastSequence, offset, tail, count, data.Len())
+			lastSequence, offset, tail, count, wantOffset)
 	}
 }
 
