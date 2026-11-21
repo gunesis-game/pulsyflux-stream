@@ -121,7 +121,7 @@ Redaction is applied to the serialized copy of the payload; subscribers still re
   delivers to **none** of the subscribers for that call. The caller can retry,
   apply backpressure, or remove the slow subscriber.
 - Publishing with no subscribers succeeds.
-- A zero `Event.Time` is populated with the current time.
+- Each event timestamp is set at construction and remains internal to the package.
 - `Subscription.Close`, context cancellation, and `Stream.Close` are safe to
   race. Closing a subscription unregisters it and closes its channel.
 - Publishing after stream shutdown returns `ErrClosed`.
