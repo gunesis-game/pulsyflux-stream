@@ -170,6 +170,27 @@ func TestDiskWriterRotationFlushFailureIsSticky(t *testing.T) {
 	}
 }
 
+
+func TestDiskWriterCloseFailureIsStable(t *testing.T) {
+	writer, err := openDiskWriter(t.TempDir(), diskWriterOptions{MaxSegmentBytes: 4096})
+	if err != nil {
+		t.Fatal(err)
+	}
+	injected := errors.New("injected close flush failure")
+	writer.buf = bufio.NewWriterSize(failingDiskOutput{err: injected}, 64)
+	if _, err := writer.buf.Write([]byte("pending")); err != nil {
+		t.Fatal(err)
+	}
+
+	firstErr := writer.Close()
+	if !errors.Is(firstErr, injected) {
+		t.Fatalf("close error = %v, want injected failure", firstErr)
+	}
+	if secondErr := writer.Close(); secondErr != firstErr {
+		t.Fatalf("repeated Close changed result: first=%v second=%v", firstErr, secondErr)
+	}
+}
+
 func TestDiskWriterSequenceTailRecoveryAndRollover(t *testing.T) {
 	dir := t.TempDir()
 	w, err := openDiskWriter(dir, diskWriterOptions{MaxSegmentBytes: 220})
