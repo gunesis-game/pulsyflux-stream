@@ -14,7 +14,7 @@ type RedactionPolicy struct {
 	exclude []string
 }
 
-// NewRedactionPolicy constructs an immutable-by-convention redaction redactionPolicy.
+// NewRedactionPolicy constructs an immutable-by-convention redaction policy.
 // The exclusions are copied and cannot be modified by callers.
 func NewRedactionPolicy(exclude ...string) RedactionPolicy {
 	return RedactionPolicy{exclude: append([]string(nil), exclude...)}
@@ -35,15 +35,15 @@ func NewEvent[T any](redactionPolicy RedactionPolicy) (Event[T], error) {
 	redactionPolicy.exclude = append([]string(nil), redactionPolicy.exclude...)
 	event := Event[T]{time: time.Now(), redactionPolicy: redactionPolicy}
 	if err := event.validate(); err != nil {
-		return Event[T]{}, fmt.Errorf("invalid event redactionPolicy: %w", err)
+		return Event[T]{}, fmt.Errorf("invalid event redaction policy: %w", err)
 	}
 	return event, nil
 }
 
-// SetData validates the event redactionPolicy and payload serialization before assigning.
+// SetData validates the event redaction policy and payload serialization before assigning.
 func (e *Event[T]) SetData(data T) error {
 	if err := e.validate(); err != nil {
-		return fmt.Errorf("invalid event redactionPolicy: %w", err)
+		return fmt.Errorf("invalid event redaction policy: %w", err)
 	}
 	if _, err := json.Marshal(data); err != nil {
 		return fmt.Errorf("invalid event data: %w", err)
@@ -103,12 +103,12 @@ func (e *Event[T]) serialize() ([]byte, error) {
 	return json.Marshal(eventEnvelope{Type: eventTypeName[T](), Data: redacted, Time: e.time})
 }
 
-// deserialize rebuilds an event using the caller-provided redactionPolicy. RedactionPolicy is
+// deserialize rebuilds an event using the caller-provided redaction policy. RedactionPolicy is
 // intentionally not stored in the serialized envelope.
 func deserialize[T any](raw []byte, redactionPolicy RedactionPolicy) (Event[T], error) {
 	event, err := NewEvent[T](redactionPolicy)
 	if err != nil {
-		return Event[T]{}, fmt.Errorf("invalid event redactionPolicy: %w", err)
+		return Event[T]{}, fmt.Errorf("invalid event redaction policy: %w", err)
 	}
 
 	var envelope eventEnvelope
