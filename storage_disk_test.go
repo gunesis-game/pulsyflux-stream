@@ -483,3 +483,84 @@ func TestDiskWriterReopenAcrossSegmentsReaderContinuity(t *testing.T) {
 		t.Fatalf("expected EOF after reopened stream, got %v", err)
 	}
 }
+
+
+func TestDiskWriterRejectsIncompleteTailInNonActiveSegment(t *testing.T) {
+	dir := t.TempDir()
+	first := append(mustEncodeDiskRecord(t, 1), []byte("PFS")...)
+	second := mustEncodeDiskRecord(t, 2)
+	if err := os.WriteFile(filepath.Join(dir, "segment-000001.pfs"), first, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "segment-000002.pfs"), second, 0o640); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := openDiskWriter(dir, diskWriterOptions{MaxSegmentBytes: 4096}); !errors.Is(err, errRecordCorrupt) {
+		t.Fatalf("incomplete non-active segment accepted: %v", err)
+	}
+}
+
+func TestDiskWriterRejectsCompleteCorruptActiveFrame(t *testing.T) {
+	dir := t.TempDir()
+	frame := mustEncodeDiskRecord(t, 1)
+	frame[len(frame)-1] ^= 0xff
+	if err := os.WriteFile(filepath.Join(dir, "segment-000001.pfs"), frame, 0o640); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := openDiskWriter(dir, diskWriterOptions{MaxSegmentBytes: 4096}); !errors.Is(err, errRecordCorrupt) {
+		t.Fatalf("complete corrupt active frame accepted as recoverable tail: %v", err)
+	}
+}
+
+func TestDiskWriterTruncatesIncompleteActiveTailAtLastValidFrame(t *testing.T) {
+	dir := t.TempDir()
+	valid := mustEncodeDiskRecord(t, 1)
+	contents := append(append([]byte(nil), valid...), []byte("PFS")...)
+	path := filepath.Join(dir, "segment-000001.pfs")
+	if err := os.WriteFile(path, contents, 0o640); err != nil {
+		t.Fatal(err)
+	}
+
+	writer, err := openDiskWriter(dir, diskWriterOptions{MaxSegmentBytes: 4096})
+	if err != nil {
+		t.Fatalf("open writer with incomplete active tail: %v", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Size() != int64(len(valid)) {
+		t.Fatalf("recovered segment size=%d want=%d", info.Size(), len(valid))
+	}
+
+	sequence, _, err := writer.Append(uuid.New(), uuid.New(), "schema", "event", time.Now(), []byte(`{"v":2}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sequence != 2 {
+		t.Fatalf("recovered append sequence=%d want=2", sequence)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reader, err := openDiskReader(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	for expected := uint64(1); expected <= 2; expected++ {
+		record, err := reader.Next()
+		if err != nil {
+			t.Fatalf("read sequence %d: %v", expected, err)
+		}
+		if record.Sequence != expected {
+			t.Fatalf("read sequence=%d want=%d", record.Sequence, expected)
+		}
+	}
+	if _, err := reader.Next(); !errors.Is(err, io.EOF) {
+		t.Fatalf("expected EOF after recovered append, got %v", err)
+	}
+}
