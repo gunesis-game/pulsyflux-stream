@@ -12,7 +12,7 @@ import (
 
 func newTestEvent[T any](t *testing.T, data T) Event[T] {
 	t.Helper()
-	event, err := NewEvent[T](NewPolicy())
+	event, err := NewEvent[T](NewRedactionRedactionPolicy())
 	if err != nil {
 		t.Fatal(err)
 	}
