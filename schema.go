@@ -69,7 +69,7 @@ func writeTypeDescriptor(b *strings.Builder, t reflect.Type, seen map[reflect.Ty
 		return
 	}
 	ref := *nextRef
-	*nextRef++
+	(*nextRef)++
 	seen[t] = ref
 
 	fmt.Fprintf(b, "type(%d:%s)", ref, t.Kind())
