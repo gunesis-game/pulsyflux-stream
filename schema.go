@@ -339,7 +339,6 @@ func eventSchemaIdentity[T any](policy RedactionPolicy) (schemaIdentity, []strin
 	return identity, paths, nil
 }
 
-
 func streamSchemaIdentity[TStream, TEvent any](event schemaIdentity) schemaIdentity {
 	streamContext := reflect.TypeOf((*TStream)(nil)).Elem()
 	descriptor := "stream:v1:" + canonicalTypeDescriptor(streamContext)

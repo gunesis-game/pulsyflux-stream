@@ -3,9 +3,9 @@ package stream
 
 import (
 	"context"
-	"reflect"
 	"errors"
 	"fmt"
+	"reflect"
 	"sync"
 )
 
