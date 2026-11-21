@@ -14,8 +14,8 @@ Maintain a small, typed, concurrency-safe Go event stream. Event redaction is im
 ## Identity and schema invariants
 - Keep event, stream, and channel instance UUIDs internal to this package and infrastructure. Consumers must not need to inspect, generate, or persist these IDs.
 - Instance identity is distinct from schema identity. Runtime instances must not share history merely because they share a schema fingerprint.
-- Structural schema fingerprints are deterministic hashes of canonical type descriptors and an explicit fingerprint-format version. Never hash raw memory, rely on unstable reflection strings, or use random UUIDs as schema fingerprints.
-- Structural descriptors should capture exported serialized fields, field types, and relevant JSON serialization tags. Treat schema descriptor/fingerprint format changes as versioned changes.
+- Structural schema fingerprints are implemented privately in schema.go. They are deterministic SHA-256 hashes of canonical descriptors, layered as data → event → stream → channel with an explicit fingerprint-format version. Never hash raw memory, rely on unstable reflection strings, or use random UUIDs as schema fingerprints.
+- Structural descriptors capture exported serialized fields, field types, and JSON tags, omit unexported and json:"-" fields, and normalize struct field order by JSON field name. Struct names/package paths are omitted for structural equivalence; named scalar types retain name/package identity. Treat descriptor/fingerprint format changes as versioned changes. Tests cover determinism, structure/tag changes, field-order normalization, layered identity, and recursive types.
 - Fingerprints detect definition changes; they do not provide migrations or prove semantic compatibility.
 - Use full cryptographic hashes for schema fingerprints. Do not truncate or force hashes into UUID formatting unless a separately justified format is designed.
 - Persisted records need an explicit record-format version, schema fingerprint, event identity, internal stream/channel identity, ordering information, timestamp, and encoded payload as the storage design is implemented.
@@ -25,7 +25,7 @@ Maintain a small, typed, concurrency-safe Go event stream. Event redaction is im
 ## Storage taxonomy and implementation direction
 - Keep storage taxonomy explicit: Lifecycle (Open/Close), Write (Append/Flush/Sync), Read (Scan/Read), Lookup (Find/Seek), Replay (Replay/Resume), Maintenance (Recover/Rotate/Compact/Prune/Verify), Metadata (catalog/index).
 - Prefer append-only segmented files for the initial disk backend. Make record framing, checksums, segment rollover, sync policy, and recovery boundaries explicit and versioned.
-- Start with sequential scan and rebuildable/minimal indexes; avoid introducing SQL tables or distributed infrastructure prematurely.
+- Schema fingerprints are groundwork only; do not treat them as a persistence implementation. Start storage with sequential scan and rebuildable/minimal indexes; avoid introducing SQL tables or distributed infrastructure prematurely.
 - Distinguish application-buffer Flush from OS/filesystem Sync durability. Document the durability window for each policy.
 - Storage backends handle encoded records and disk I/O; they must not own Go payload types or redaction rules.
 - Avoid adding parallel public event, stream, channel, or storage-record models unless a concrete boundary requires one.
