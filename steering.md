@@ -82,34 +82,39 @@ Do not introduce a public storage API until the internal storage contract and du
 - Label deferred behavior and limitations clearly. Never document proposed behavior as implemented.
 - For unrelated changes, do not edit the architecture guide. Markdown-only updates do not trigger CI; paired Go + Markdown storage changes must trigger normal CI.
 
-## Current handoff — reliable cross-platform directory-entry durability (2026-11-21)
+## Current storage durability status
 
-### Repository and verified baseline
+- `SyncEachAppend` is deliberately rejected on **both Linux and Windows** with `errDirectorySyncUnsupported`, before the storage directory or segment files are created. The former platform-specific directory-sync helpers were removed.
+- Ordinary buffered append, flush, explicit active-file `Sync()`, segment rotation, and recovery remain available on Linux and Windows. Explicit file sync does not guarantee persistence of the segment's directory entry; never describe it as strict per-append crash durability.
+- Do not re-enable `SyncEachAppend` until both platforms have reliable, documented, tested directory-entry durability implementations and the same contract is verified by CI.
+- Windows research found no documented, supported standard-user Win32/native API sequence for flushing directory namespace metadata with the required crash-durability guarantee. Do not introduce an undocumented directory-handle flush or infer durability from an API call merely returning success. Revisit strict durability through a separately designed architecture or a clearly scoped, user-approved operational requirement.
+- The current cross-platform behavior is intentionally uniform and fail-closed; strict per-append durability remains unavailable rather than being silently weakened.
+
+## Current handoff — storage recovery scan memory review (2026-11-21)
+
+### Repository and verified checkpoint
 - Repository: `gunesis-game/pulsyflux-stream`; branch: `main` only.
-- Current `main` HEAD at handoff preparation: `a48784052ea499e8d5e5c295dd60a5f90b1f139c` (documentation-only coverage-comparison update).
-- Latest verified code/workflow commit: `b54bb44bb498a644acfc0f051ce5da21026e4e96`.
-- CI run [44899535090](https://github.com/gunesis-game/pulsyflux-stream/actions/runs/44899535090), run #162, completed successfully for exact code SHA `b54bb44bb498a644acfc0f051ce5da21026e4e96`. Cleanup and both OS matrix jobs passed formatting, race-enabled tests with coverage profiles/reports, artifact uploads, vet, and build.
-- Coverage comparison from that same run: Linux **81.4%**, Windows **80.9%** (0.5 percentage-point difference). Shared functions in channel.go, event.go, schema.go, store.go, and stream.go matched. Platform-specific directory sync accounts for the expected helper difference: Linux `syncSegmentDirectory` 75.0%; Windows helper 0.0% because strict mode is rejected there. Shared storage functions with differing coverage include `openDiskWriter` (67.9% Linux / 69.8% Windows), `newSegment` (88.9% / 77.8%), `Append` (85.7% / 81.0%), and `syncLocked` (100% / 66.7%). The comparison is per-function, not a statement-level profile diff. Do not force equal aggregate percentages with artificial tests.
-- Markdown-only steering updates do not trigger CI. No local Go test execution is claimed.
+- Exact current `main` HEAD: `2a3d11c7c1207a6b2b4bc9c402af4ed9384926e9`.
+- Exact code SHA tested: `2a3d11c7c1207a6b2b4bc9c402af4ed9384926e9`.
+- CI run [44900586257](https://github.com/gunesis-game/pulsyflux-stream/actions/runs/44900586257), run #165, completed successfully for that exact SHA. Cleanup and both OS jobs passed formatting, race-enabled tests, coverage report generation, artifact upload, vet, and build.
+- Mandatory coverage comparison from run #165: Linux **82.2%**, Windows **82.2%** (0.0 percentage-point difference). The per-function reports each contained 51 entries and matched exactly. No platform-specific directory-sync helper remains; there are no per-function coverage differences to investigate. Per-function output was sufficient, so no deeper profile attribution was needed.
+- The strict-sync behavior change is implemented and documented: `openDiskWriter` rejects `SyncEachAppend` before filesystem mutation on both platforms; tests cover the rejection and verify explicit file `Sync()` remains available. `docs/storage_disk.md` and its append/rotation diagrams match the implementation.
+- The resolved formatting and unused-import failures from earlier attempts are not retained here; the exact final SHA above is green. Markdown-only steering updates do not trigger CI. No local Go test execution is claimed.
 
-### Active problem and strict contract
-- User requires the disk backend to behave consistently on Linux and Windows; do not accept a weaker Windows durability guarantee.
-- Under `SyncEachAppend`, a successful append must not be acknowledged until both file contents and the segment's directory entry are covered by a reliable durability sequence.
-- Linux currently implements parent-directory sync in `storage_disk_sync_linux.go`.
-- Windows currently returns `errDirectorySyncUnsupported` from `storage_disk_sync_windows.go`; writer initialization rejects `SyncEachAppend` before opening or creating segment files. This fail-closed behavior avoids falsely claiming strict durability but leaves the option unavailable on Windows.
-- Do not silently fall back to file-only sync, and do not use an unverified Windows directory-handle/FlushFileBuffers technique. A Windows implementation must be supported by authoritative platform documentation and tests that exercise the real behavior.
-- Supported disk-backend OS scope is Linux and Windows. Preserve the strict contract; do not change it to asymmetric durability or file-only syncing without explicit user approval.
+### Next task: review recovery scan memory behavior before indexing
+1. Inspect `scanDiskRecords`, the recovery loop in `openDiskWriter`, and the sequential reader path (`openDiskReader`, `readDiskRecord`, and `diskReader.Next`) in `storage_disk.go`.
+2. Trace record-length validation, allocation sizes, buffering, segment iteration, incomplete-tail handling, and corruption handling. Determine whether memory use is bounded by the current record limits or grows with segment/file size.
+3. Review existing coverage in `storage_disk_test.go`; add focused tests or benchmarks only where the review identifies a real gap. Include large-segment and malformed/truncated-record cases where appropriate.
+4. Preserve the on-disk format, sequence recovery, tail-truncation rules, and reader behavior unless a concrete defect is found. Update `docs/storage_disk.md` in the same code commit if any storage behavior or invariant changes.
+5. Do not start indexing until this recovery/memory review is complete and a concrete Find/Seek requirement and contract exist.
+6. Push directly to `main`, verify the exact CI SHA, inspect all Linux/Windows jobs and steps, and compare aggregate plus per-function coverage from that same run.
 
-### Next task and acceptance criteria
-1. Research a supported Windows mechanism for making newly created segment directory entries durable, using authoritative Microsoft documentation and relevant Go/Windows API behavior. Distinguish documented guarantees from assumptions; do not treat a successful API call alone as proof of crash durability.
-2. If a reliable mechanism exists, implement it behind the Windows-specific helper with focused tests. If no supported mechanism exists, report the evidence and propose the narrowest viable architecture that still preserves one cross-platform contract; do not weaken the contract silently.
-3. Review Linux and Windows ordering for segment creation, directory sync, file sync, reopen, and rotation. Both platforms must acknowledge append only after the same required durability conditions have succeeded.
-4. Update `docs/storage_disk.md` and its diagrams in the same commit as any storage implementation change.
-5. Add tests for success, unsupported/error cases, segment creation, reopen, rotation, and sticky failure behavior. Tests must prove no append is acknowledged after a required sync fails.
-6. Push directly to `main`; verify the exact CI SHA and all cleanup/Linux/Windows jobs and steps. Compare aggregate and per-function coverage after that run; inspect artifacts if differences are not explained.
-7. Update this handoff in place with verified results and the next task. Remove this handoff once the cross-platform durability task is successfully resolved and verified.
+### Remaining confirmed limitation and acceptance criteria
+- `SyncEachAppend` is unavailable on both supported platforms pending a reliable, documented, tested directory-entry durability implementation for both. Do not weaken this contract or reintroduce asymmetric behavior.
+- The recovery review is complete when the scan/recovery/reader memory behavior and record-size bounds are documented, any concrete defects are fixed with focused tests, and the exact CI run passes on Linux and Windows with the required coverage comparison recorded.
+- `docs/storage_disk.md` currently matches the implementation: **yes**.
 
 ### Non-goals until separately justified
-- Do not start indexing until a concrete Find/Seek requirement and contract exist.
+- Do not add indexing before the recovery scan review and a concrete Find/Seek contract.
 - Do not add a public storage API, SQL, or distributed infrastructure.
 - Do not change the existing public event/stream/channel API or expose internal IDs/fingerprints.
