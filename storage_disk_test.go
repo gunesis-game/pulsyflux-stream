@@ -117,3 +117,105 @@ func TestDiskReaderSequentialAcrossSegments(t *testing.T) {
 	}
 	if _, err := r.Next(); !errors.Is(err, io.EOF) { t.Fatalf("expected EOF, got %v", err) }
 }
+
+
+func TestDiskReaderSkipsEmptySegmentsAndRejectsSequenceRegression(t *testing.T) {
+	dir := t.TempDir()
+	first, err := encodeDiskRecord(testDiskRecord(4))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := encodeDiskRecord(testDiskRecord(3))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "segment-000001.pfs"), first, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "segment-000002.pfs"), nil, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "segment-000003.pfs"), second, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	r, err := openDiskReader(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	if record, err := r.Next(); err != nil || record.Sequence != 4 {
+		t.Fatalf("first record: sequence=%d err=%v", record.Sequence, err)
+	}
+	if _, err := r.Next(); !errors.Is(err, errRecordCorrupt) {
+		t.Fatalf("sequence regression accepted: %v", err)
+	}
+}
+
+func TestDiskReaderRejectsIncompleteTailAndCompleteCorruption(t *testing.T) {
+	for name, contents := range map[string][]byte{
+		"incomplete": append(mustEncodeDiskRecord(t, 1), []byte("PFS")...),
+		"corrupt": func() []byte {
+			frame := mustEncodeDiskRecord(t, 1)
+			frame[len(frame)-1] ^= 0xff
+			return frame
+		}(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, "segment-000001.pfs"), contents, 0o640); err != nil {
+				t.Fatal(err)
+			}
+			r, err := openDiskReader(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer r.Close()
+			if _, err := r.Next(); !errors.Is(err, errRecordCorrupt) {
+				t.Fatalf("invalid segment accepted: %v", err)
+			}
+		})
+	}
+}
+
+func TestDiskSegmentsRejectInvalidNames(t *testing.T) {
+	for _, name := range []string{"segment-000000.pfs", "segment-1.pfs", "backup.pfs"} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, name), nil, 0o640); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := openDiskReader(dir); err == nil {
+				t.Fatalf("invalid segment name %q accepted", name)
+			}
+		})
+	}
+}
+
+func mustEncodeDiskRecord(t *testing.T, sequence uint64) []byte {
+	t.Helper()
+	frame, err := encodeDiskRecord(testDiskRecord(sequence))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return frame
+}
+
+func TestDiskReaderCloseClosesActiveSegment(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "segment-000001.pfs"), mustEncodeDiskRecord(t, 1), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	r, err := openDiskReader(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Next(); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Next(); !errors.Is(err, ErrClosed) {
+		t.Fatalf("Next after Close: %v", err)
+	}
+}
