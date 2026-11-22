@@ -46,15 +46,27 @@ No asynchronous queue is proposed. A synchronous sink can delay Publish while I/
 
 Replay should use a separate internal delivery path that does not call Publish and therefore does not append again. It should decode a record using the registered type, verify channel/stream identities, and deliver to subscribers with defined behavior for backpressure. Unknown identities, payload decode failures, and corrupt records should stop replay rather than skip silently. Replay ordering uses persisted sequence, not timestamp.
 
-The draft leaves open whether replay is allowed only before live publishing begins, how replay conflicts with subscriber buffer capacity are handled (batching/waiting vs returning `ErrSlowSubscriber`), and whether a replay cursor or checkpoint is required.
+**Recommended initial replay scope:** replay is startup-only, before live Publish is enabled for a persist-enabled stream. Do not allow replay and live publish to interleave. A replay operation may be bounded by subscriber capacity and return `ErrSlowSubscriber`; it must not advance its cursor/sequence on an event that was not delivered. If replay is resumed, the cursor must identify the last successfully delivered persisted sequence, not merely the last record read. For a first implementation, avoid persistent checkpoints: the caller may replay from the beginning, and replay is only offered when subscriber capacity can be managed without blocking indefinitely.
+
+The remaining product/API decisions are whether replay should be exposed at all in the initial storage integration, and whether the startup-only replay contract should use an explicit internal lifecycle state or be guaranteed by construction-time wiring.
+
+## Recommended contract decisions
+
+These are the design recommendations to implement only after approval of storage integration:
+
+- **Ordering:** synchronous persist-before-live-delivery under the stream mutex; append sequence and subscriber-observed live order agree.
+- **Failure atomicity:** no live delivery if validation, slow-subscriber preflight, or sink append fails. Storage errors propagate directly from Publish.
+- **Backpressure:** synchronous I/O; no asynchronous queue. Slow subscribers reject before append, so there is no orphan persisted event.
+- **Ownership:** private writer owner injected per stream; stream close does not close shared storage unless explicit exclusive ownership is defined. No multi-process lock.
+- **Replay:** separate startup-only path; never invokes Publish or append; deliver by stored sequence; stop on unknown type, identity mismatch, corrupt frame, or payload decode error. The initial integration may omit replay until lifecycle and buffer strategy are fully specified.
+- **Durability:** append success means buffered writer acceptance only. Explicit Sync is separate; strict directory-entry durability is unsupported on both CI platforms.
 
 ## Decision checklist before wiring
 
-- [ ] Confirm persist-before-deliver ordering, or choose a different explicit ordering.
-- [ ] Confirm sink append failure blocks live delivery.
-- [ ] Confirm synchronous I/O backpressure and no queue.
+- [ ] Confirm the recommended persist-before-deliver ordering and append failure behavior.
+- [ ] Confirm synchronous backpressure and no queue.
 - [ ] Define private writer owner, sharing, flush/sync, and shutdown behavior.
-- [ ] Define replay startup phase and subscriber backpressure strategy.
+- [ ] Decide whether replay is included in the first integration or deferred.
 - [ ] Add tests for ordering under concurrent publishers, slow subscribers (no orphan persisted record), storage failure (no live delivery), redaction, no subscribers, Close, and replay non-reappend.
 
 ## Non-goals
