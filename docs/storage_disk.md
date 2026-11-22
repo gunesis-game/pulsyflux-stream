@@ -467,3 +467,14 @@ This manager is tested independently. It is **not yet wired into EventChannel co
 
 
 **Important:** writer ownership is wired into channel construction/Close, but `Stream.Publish` is not yet enqueueing persisted records. ErrorStream routing is also pending.
+
+
+## Publish persistence integration checkpoint
+
+`Stream.Publish` now serializes admission with channel Close, checks stream/channel state and subscriber capacity, prepares redacted JSON through the event payload encoder, enqueues an event record with typed channel/stream identity and event timestamp, and only then delivers the original live event. This applies even when there are no subscribers. Slow-subscriber preflight rejects the publish before persistence, avoiding persisted-only partial delivery.
+
+
+Two tests in `storage_publish_test.go` verify redacted persistence without subscribers and that slow-subscriber rejection does not persist the rejected event. The exact source SHA `a0ba628ba37d414f05642a6ce2001b5083ef8e94` passed GitHub Actions run `45004091710` on Linux and Windows, including formatting, race tests/coverage, vet and build. Coverage-profile comparison has not yet been completed for this run.
+
+
+**Remaining:** ErrorStream creation/failure routing and architecture cleanup (removing map registry/Get API) remain. Queue admission is integrated, but queue saturation/concurrent-publisher integration stress tests are still to be added.
