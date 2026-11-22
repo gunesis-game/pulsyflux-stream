@@ -2,7 +2,6 @@ package stream
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"testing"
 	"time"
@@ -28,8 +27,8 @@ func TestAsyncDiskWriterDrainsAcceptedItemsInOrder(t *testing.T) {
 		item := asyncWriterItem{
 			channelIdentity: "test-channel",
 			streamIdentity:  "test-stream",
-			timestamp:       time.Now(),
-			payload:          payload,
+			timestamp: time.Now(),
+			payload: payload,
 		}
 		if err := writer.Submit(item); err != nil {
 			t.Fatalf("submit record %d: %v", i, err)
@@ -87,7 +86,7 @@ func TestAsyncDiskWriterCloseIsIdempotent(t *testing.T) {
 		channelIdentity: "channel",
 		streamIdentity: "stream",
 		timestamp: time.Now(),
-		payload: json.RawMessage(fmt.Sprintf("%d", 1)),
+		payload: []byte("1"),
 	}); err != ErrClosed {
 		t.Errorf("Submit after Close error = %v, want ErrClosed", err)
 	}
