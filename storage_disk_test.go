@@ -954,3 +954,64 @@ func TestDiskWriterTruncatesIncompleteActiveTailAtLastValidFrame(t *testing.T) {
 		t.Fatalf("expected EOF after recovered append, got %v", err)
 	}
 }
+
+func TestAppendEventPersistsTypedIdentityAndRedactedPayload(t *testing.T) {
+	type testFamily struct{}
+	type testPayload struct {
+		Name   string `json:"name"`
+		Secret string `json:"secret"`
+	}
+	event, err := NewEvent[testPayload](NewRedactionPolicy("secret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	created := event.time
+	if err := event.SetData(testPayload{Name: "Ada", Secret: "private"}); err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	writer, err := openDiskWriter(dir, diskWriterOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seq, id, err := appendEvent[testFamily](writer, event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if seq != 1 || id == uuid.Nil {
+		t.Fatalf("append result sequence=%d id=%s", seq, id)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reader, err := openDiskReader(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	record, err := reader.Next()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.ChannelIdentity != channelTypeIdentity[testFamily]() {
+		t.Fatalf("channel identity=%q", record.ChannelIdentity)
+	}
+	if record.StreamIdentity != streamTypeIdentity[testFamily, testPayload]() {
+		t.Fatalf("stream identity=%q", record.StreamIdentity)
+	}
+	if record.EventID != id || record.Sequence != seq || record.Timestamp != created.UnixNano() {
+		t.Fatalf("record metadata mismatch: %#v", record)
+	}
+	if strings.Contains(string(record.Payload), "private") || strings.Contains(string(record.Payload), "secret") {
+		t.Fatalf("persisted payload leaked excluded data: %s", record.Payload)
+	}
+	var got testPayload
+	if err := json.Unmarshal(record.Payload, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Name != "Ada" || got.Secret != "" {
+		t.Fatalf("unexpected persisted payload: %#v", got)
+	}
+}
