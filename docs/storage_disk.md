@@ -404,10 +404,9 @@ The former platform-specific directory-sync helpers have been removed rather tha
 
 ## 13. Version-3 identity format
 
-Record version 3 is implemented. It replaces UUID-based channel/stream routing identities and schema fingerprints with canonical type-derived channel and stream identity strings. It retains the event UUID, sequence, creation timestamp, and payload.
+**Development format note (not a release):** the current implementation uses internal record-format revision 3. This is an in-development encoding revision, not a product version, release, stability promise, or production migration boundary. It replaces UUID-based channel/stream routing identities and schema fingerprints with canonical type-derived channel and stream identity strings. It retains the event UUID, sequence, creation timestamp, and payload.
 
-
-Compatibility is explicit: **version 3 readers and writers reject version 2 and earlier records; no migration or mixed-version segment support is planned.** This is a breaking persisted-data change. Applications must archive or remove old storage directories before adopting version 3; old data is not reinterpreted. The version-3 implementation is now active.
+Because this project is not live or in production, record layouts may change incompatibly as the architecture is developed. Do not build migration, backward-compatibility, or mixed-version support solely to preserve earlier development formats. Do not bump the internal format revision for ordinary code changes; change it only when an actual incompatible record-encoding change requires it. There is no released storage format and no production data-adoption instruction.
 
 Named types use package-qualified identities where available; unnamed type identities use Go's structural `reflect.Type.String()` fallback and are not guaranteed stable across code changes. Channel and stream identity strings are composed by the helpers in `type_identity.go`.
 
