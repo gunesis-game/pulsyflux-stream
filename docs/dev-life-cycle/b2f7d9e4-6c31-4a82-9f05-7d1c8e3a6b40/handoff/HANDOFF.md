@@ -4,7 +4,7 @@
 Consolidate and audit project documentation after the async-persistence/ErrorStream architecture change; reconcile README and maintained docs with current implementation.
 
 ## Current Repository State
-- **Persisted lifecycle phase:** IMPLEMENT (matches `cycle-index.json`).
+- **Persisted lifecycle phase:** RECONCILE (matches `cycle-index.json`).
 - Repository: `gunesis-game/pulsyflux-stream`
 - Branch: `main`
 - The prior completed implementation cycle is execution order 1. The documentation audit boundary is still 0; this cycle audits that complete historical range.
@@ -26,17 +26,19 @@ Consolidate and audit project documentation after the async-persistence/ErrorStr
 - Current source confirms `EventChannel.Errors(bufferSize)`, ordinary `Subscribe`, a single lazy channel-owned system-only stream, reserved error capacity, and channel shutdown after writer ownership release.
 - Current source confirms streams are caller-owned and no channel stream lookup registry or `Get()` API remains.
 - Current architecture and storage integration docs describe those behaviors.
-- The README correction is prepared in the cycle work plan; no cycle implementation commit or CI result exists yet.
-- Linux/Windows CI is still required for the exact documentation checkpoint and completion checkpoint.
+- README now documents the implemented ErrorStream behavior, caller-owned streams, bounded async queue admission, terminal failure routing, and the lack of a disk-durability guarantee at Publish return.
+- Exact-commit CI for the README/lifecycle checkpoint completed successfully on Linux and Windows. Both jobs passed formatting, race-enabled tests/coverage, vet, build, and coverage artifact upload; each reported 86.0% statement coverage.
+- Relative Markdown link validation covered 10 links across all maintained Markdown documents; no broken relative targets were found.
+- The audit reviewed all completed cycles since the prior boundary: execution order 1 only. Current architecture, storage, type-identity, README, and lifecycle docs agree with the implementation and cycle-1 decisions.
 
 ## Outstanding Risks
 - Ensure README wording does not imply queue admission is durable persistence or expose private storage internals.
 - Do not advance `docs_reviewed_through_execution_order` until final consistency audit and CI have passed.
 
 ## Current Phase Checkpoint
-- **Phase:** IMPLEMENT
-- **Exit condition:** README and any evidenced documentation contradictions are corrected and reviewed; then proceed to VERIFY.
-- **Next action:** Commit the coherent README correction with the cycle's plan/handoff and run exact-commit CI.
+- **Phase:** RECONCILE
+- **Exit condition:** Final documentation and lifecycle consistency audit is complete; then advance the documentation review boundary to execution order 1 and mark the cycle complete.
+- **Next action:** Commit the terminal plan/handoff/registry checkpoint and verify its exact-commit CI.
 
 ## Acceptance Criteria
 See the cycle `plan/PLAN.md`. Do not mark complete until all historical audit, documentation, link, CI, and coverage checks pass.
