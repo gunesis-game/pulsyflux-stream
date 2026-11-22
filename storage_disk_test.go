@@ -1015,3 +1015,36 @@ func TestAppendEventPersistsTypedIdentityAndRedactedPayload(t *testing.T) {
 		t.Fatalf("unexpected persisted payload: %#v", got)
 	}
 }
+
+func TestAppendEventRejectsUnsetDataAndInvalidPolicy(t *testing.T) {
+	type testFamily struct{}
+	type testPayload struct {
+		Value string `json:"value"`
+	}
+
+	writer, err := openDiskWriter(t.TempDir(), diskWriterOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Close()
+
+	unset, err := NewEvent[testPayload](NewRedactionPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := appendEvent[testFamily](writer, unset); !errors.Is(err, ErrUnsetEventData) {
+		t.Fatalf("unset event error=%v, want ErrUnsetEventData", err)
+	}
+
+	event, err := NewEvent[testPayload](NewRedactionPolicy("value"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := event.SetData(testPayload{Value: "test"}); err != nil {
+		t.Fatal(err)
+	}
+	event.redactionPolicy.exclude = []string{"missing"}
+	if _, _, err := appendEvent[testFamily](writer, event); err == nil {
+		t.Fatal("append accepted invalid redaction policy")
+	}
+}
