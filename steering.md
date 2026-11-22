@@ -3,6 +3,19 @@
 ## Purpose
 Maintain a small, typed, concurrency-safe Go event-stream library. Keep the live-stream core lightweight. Event payload validation/redaction belongs to Event; disk persistence is an internal subsystem.
 
+## Project status — NOT LIVE, NOT PRODUCTION
+
+**This Go project is not live, not released, and not in production. It is still under active architecture and implementation development. There are no production compatibility obligations to preserve.**
+
+This status is authoritative for all work in this repository:
+- Do not assume there are users, deployments, production data, released consumers, or a stable public API.
+- Do not preserve legacy code, APIs, storage layouts, or abstractions merely for backward compatibility. Change or delete them when the new architecture requires it.
+- Breaking API and on-disk format changes are acceptable while the project is pre-production. Prefer the correct architecture over compatibility with earlier development iterations.
+- **Do not bump the Go module version, release version, or disk-format version just because code or architecture changed.** Version changes require an explicit reason and must be tied to an actual release/compatibility/migration requirement, not routine development.
+- A disk-format version marker (for example, an internal format revision) describes record encoding compatibility only. It does not mean the project is released, live, production-ready, or that the format is frozen. Do not describe an in-development format as a production/current stable version.
+- Do not add migration frameworks, compatibility shims, deprecation periods, or version-transition machinery for unreleased development formats unless explicitly required.
+- Never initiate a release or production rollout unless the user explicitly asks.
+
 ## Agreed architecture and identity
 - **Identity is type-derived, not UUID-derived.** `EventChannel[TStream]` identity is `EventChannel[TStream.name]` (e.g. `EventChannel[AuthStream]`). `Stream[TStream,TEvent]` identity is `Stream[TStream.name,TEvent]` (e.g. `Stream[AuthStream,AuthTokenValidEvent]`). Use a stable canonical type-name representation appropriate to Go types; do not rely on ambiguous bare names if package-qualified identity is needed to avoid collisions.
 - `EventChannel` and `Stream` do not own or generate UUIDs. Do not add UUID recovery, identity catalogs, or deterministic UUID derivation.
@@ -39,7 +52,7 @@ Maintain a small, typed, concurrency-safe Go event-stream library. Keep the live
 
 ## Disk storage principles
 - Keep storage taxonomy explicit: lifecycle, write, read/scan, lookup, replay, maintenance, metadata.
-- Prefer append-only segmented files. Make framing, checksum, segment rollover, sync policy and recovery boundaries explicit and versioned.
+- Prefer append-only segmented files. Make framing, checksum, segment rollover, sync policy and recovery boundaries explicit. Use an internal format revision only when needed to interpret incompatible record encodings; it is not a release version and does not imply production stability.
 - Flush (application buffering) and Sync (OS/filesystem durability) are distinct; document durability windows.
 - Storage handles redacted payload bytes and I/O; it does not own Go payload types or redaction.
 - Begin with sequential scan and rebuildable/minimal indexes. No SQL/distributed infrastructure absent concrete requirements.
@@ -66,13 +79,13 @@ Maintain a small, typed, concurrency-safe Go event-stream library. Keep the live
 
 ## Current handoff (2026-11-22)
 
-- Repository: `gunesis-game/pulsyflux-stream`, branch `main`. Latest HEAD before this steering update: `44b112ef918e7aa943af312468b96473b69ac8b3`.
+- Repository: `gunesis-game/pulsyflux-stream`, branch `main`. Latest HEAD must be refreshed from GitHub before the next code change; do not rely on stale SHA values in this handoff.
 - Latest code SHA: `c9e0d705e4f43a3cc1dec599d785f33591984207`. CI run [44967119308](https://github.com/gunesis-game/pulsyflux-stream/actions/runs/44967119308) passed Linux and Windows: format, race tests/coverage, vet, build. Aggregate statement coverage was 86.6% on each OS. Both exact-SHA coverage profiles and per-function reports were extracted and compared: all 416 profile rows and the full reports are identical between Linux and Windows; no OS coverage discrepancy.
 - Private `appendEvent[TStream,TEvent]` validates event/policy, requires payload set, serializes/redacts, derives type identities, and persists event creation time. Tests cover metadata, redaction round-trip, and failure cases. Not wired into `Publish` or channel lifecycle.
 - Live `Publish` currently validates and preflights subscribers under stream mutex, then delivers the original event. EventChannel.Close marks closed and releases its mutex before closing streams. No writer lifecycle owner or replay dispatch exists.
-- Storage v3 documentation: `docs/storage_disk.md`, `docs/type_identity.md`. Section 14 explicitly defers live persistence integration. README now links the new `docs/storage_integration_contract.md`.
+- Disk-format design documentation: `docs/storage_disk.md`, `docs/type_identity.md`. Its internal format revision is an implementation detail, not a product/release version. Section 14 explicitly defers live persistence integration. README now links the new `docs/storage_integration_contract.md`.
 - Integration contract draft recommends persist-before-delivery, synchronous backpressure/no queue, storage failure blocking delivery, per-stream sink, and startup-only replay separate from Publish. Replay may be deferred from first integration. It is design-only, no API/production wiring.
-- Architecture correction from user (2026-11-22): disk is authoritative; channel construction loads an existing channel record or creates it if absent, so no separate `Get()` or in-memory channel/stream map/cache. **Disk storage MUST NEVER BE MADE PUBLIC.** The library internally creates/opens and owns disk storage; consumers never construct, receive, configure, or inject it. No public store type, constructor, interface, argument, field, option, or handle. Any suggestion to pass a disk store into `NewEventChannel` is explicitly rejected. The earlier parameterless `NewEventChannel()` + `channel.NewStream()` proposal is superseded. The persistence integration contract now reflects private library ownership. Implementation has not started: current v3 disk records are event records (event UUID, channel/stream identities, sequence, timestamp, payload), not a persisted channel entity record; the private storage-root policy and channel-record representation must be decided before safely implementing constructor load-or-create. Do not fake channel records by caching streams or silently infer a channel entity from unrelated event records. Exact-SHA coverage comparison is complete: Linux and Windows reports/profiles are identical at 86.6% aggregate.
+- Architecture correction from user (2026-11-22): disk is authoritative; channel construction loads an existing channel record or creates it if absent, so no separate `Get()` or in-memory channel/stream map/cache. **Disk storage MUST NEVER BE MADE PUBLIC.** The library internally creates/opens and owns disk storage; consumers never construct, receive, configure, or inject it. No public store type, constructor, interface, argument, field, option, or handle. Any suggestion to pass a disk store into `NewEventChannel` is explicitly rejected. The earlier parameterless `NewEventChannel()` + `channel.NewStream()` proposal is superseded. The persistence integration contract now reflects private library ownership. Implementation has not started: the current documented disk-record layout stores event records (event UUID, channel/stream identities, sequence, timestamp, payload), not a persisted channel entity record; the private storage-root policy and channel-record representation must be decided before safely implementing constructor load-or-create. Do not fake channel records by caching streams or silently infer a channel entity from unrelated event records. Exact-SHA coverage comparison is complete: Linux and Windows reports/profiles are identical at 86.6% aggregate.
 - Acceptance: no public API without authorization; CI green on every code SHA; disk architecture docs match implementation; private integration contract clearly labeled draft; checkpoint updated after work.
-- Latest contract correction commit: `061f582125d6341683b89e34cf56c042c8cd1d55` (private disk owner; no public injection). This is docs-only and CI is not triggered by the markdown path filter.
+- Project status: pre-production, unreleased, and not live. No compatibility or migration obligations. No version bumps without an explicit release/format-compatibility reason.
 - Working state: committed changes, no uncommitted files known.
