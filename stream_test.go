@@ -92,23 +92,37 @@ func TestDuplicateEventTypesCreateIndependentStreams(t *testing.T) {
 	channel := mustNewEventChannel[testStreamContext](t)
 	defer channel.Close()
 	first, err := New[testStreamContext, duplicateEvent](channel, 1)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	second, err := New[testStreamContext, duplicateEvent](channel, 2)
-	if err != nil { t.Fatal(err) }
-	if first == second { t.Fatal("New returned the same stream instance") }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Fatal("New returned the same stream instance")
+	}
 	firstSub, err := first.Subscribe(context.Background())
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer firstSub.Close()
 	secondSub, err := second.Subscribe(context.Background())
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer secondSub.Close()
-	if err := first.Publish(newTestEvent(t, duplicateEvent{Value: 1})); err != nil { t.Fatal(err) }
+	if err := first.Publish(newTestEvent(t, duplicateEvent{Value: 1})); err != nil {
+		t.Fatal(err)
+	}
 	select {
 	case got := <-secondSub.Events():
 		t.Fatalf("independent stream received event: %#v", got.Data())
 	default:
 	}
-	if got := <-firstSub.Events(); got.Data().Value != 1 { t.Fatalf("unexpected event: %#v", got.Data()) }
+	if got := <-firstSub.Events(); got.Data().Value != 1 {
+		t.Fatalf("unexpected event: %#v", got.Data())
+	}
 }
 
 func TestNewValidatesChannelAndBuffer(t *testing.T) {
@@ -153,14 +167,18 @@ func TestEventChannelCloseClosesOwnedStreams(t *testing.T) {
 	for _, events := range []<-chan Event[int]{firstSub.Events()} {
 		select {
 		case _, ok := <-events:
-			if ok { t.Fatal("first subscription channel remained open") }
+			if ok {
+				t.Fatal("first subscription channel remained open")
+			}
 		case <-time.After(time.Second):
 			t.Fatal("first subscription did not close with its EventChannel")
 		}
 	}
 	select {
 	case _, ok := <-secondSub.Events():
-		if ok { t.Fatal("second subscription channel remained open") }
+		if ok {
+			t.Fatal("second subscription channel remained open")
+		}
 	case <-time.After(time.Second):
 		t.Fatal("second subscription did not close with its EventChannel")
 	}

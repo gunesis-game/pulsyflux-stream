@@ -60,10 +60,10 @@ func (s *Subscription[TStream, TEvent]) Close() {
 // A full subscriber buffer rejects the entire publish instead of dropping
 // events or blocking publishers.
 type Stream[TStream, TEvent any] struct {
-	channel    *EventChannel[TStream]
-	mu         sync.RWMutex
-	nextID     uint64
-	subs       map[uint64]*subscriber[TEvent]
+	channel            *EventChannel[TStream]
+	mu                 sync.RWMutex
+	nextID             uint64
+	subs               map[uint64]*subscriber[TEvent]
 	bufferSize         int
 	reservedSlots      int
 	systemOnly         bool
@@ -72,7 +72,7 @@ type Stream[TStream, TEvent any] struct {
 }
 
 // New creates an independent stream with bufferSize slots per subscriber.
- // Streams are caller-owned values; EventChannel does not retain a lookup registry.
+// Streams are caller-owned values; EventChannel does not retain a lookup registry.
 // bufferSize must be greater than zero.
 func New[TStream, TEvent any](channel *EventChannel[TStream], bufferSize int) (*Stream[TStream, TEvent], error) {
 	if channel == nil {

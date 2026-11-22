@@ -87,8 +87,10 @@ func (channel *EventChannel[TStream]) Errors(bufferSize int) (*Stream[ErrorStrea
 	}
 	if channel.errorStream == nil {
 		channel.errorStream = &Stream[ErrorStream, StreamWriteErrorEvent]{
-			subs: make(map[uint64]*subscriber[StreamWriteErrorEvent]),
-			bufferSize: bufferSize, reservedSlots: 1, systemOnly: true,
+			subs:       make(map[uint64]*subscriber[StreamWriteErrorEvent]),
+			bufferSize: bufferSize,
+			reservedSlots: 1,
+			systemOnly: true,
 		}
 	}
 	errorStream := channel.errorStream
@@ -142,9 +144,9 @@ func register[TStream, TEvent any](channel *EventChannel[TStream], bufferSize in
 		return nil, ErrClosed
 	}
 	stream := &Stream[TStream, TEvent]{
-		channel:    channel,
-		subs:       make(map[uint64]*subscriber[TEvent]),
-		bufferSize: bufferSize,
+		channel:            channel,
+		subs:               make(map[uint64]*subscriber[TEvent]),
+		bufferSize:         bufferSize,
 		closeOnChannelDone: true,
 	}
 	return stream, nil
