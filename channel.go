@@ -1,7 +1,6 @@
 package stream
 
 import (
-	"fmt"
 	"reflect"
 	"sync"
 )
