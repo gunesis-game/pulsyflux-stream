@@ -413,7 +413,7 @@ func (w *diskWriter) newSegment() error {
 
 // appendEvent serializes and redacts the event payload before writing a record
 // with type-derived channel/stream identities and the event's creation time.
-func (w *diskWriter) appendEvent[TStream, TEvent any](event Event[TEvent]) (uint64, uuid.UUID, error) {
+func appendEvent[TStream, TEvent any](w *diskWriter, event Event[TEvent]) (uint64, uuid.UUID, error) {
 	if err := event.validate(); err != nil {
 		return 0, uuid.Nil, fmt.Errorf("stream: invalid event redaction policy: %w", err)
 	}
