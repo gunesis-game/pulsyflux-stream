@@ -39,7 +39,7 @@ func newTestStream[T any](t *testing.T, bufferSize int) *Stream[testStreamContex
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(channel.Close)
+	t.Cleanup(func() { _ = channel.Close() })
 	return s
 }
 
