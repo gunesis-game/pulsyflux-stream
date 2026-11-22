@@ -1,9 +1,16 @@
 {
+  "schema_version": 1,
+  "docs_reviewed_through_execution_order": 0,
   "cycles": [
     {
       "id": "5b2d8c41-7e6f-4a93-9d15-6c3b2a8f0471",
+      "sequence": 1,
+      "execution_order": 1,
       "description": "Implement terminal async writer failure routing through channel-owned ErrorStreams, then remove the obsolete stream registry and Get API.",
-      "status": "in-progress"
+      "status": "in-progress",
+      "created_at": null,
+      "started_at": null,
+      "completed_at": null
     }
   ]
 }
