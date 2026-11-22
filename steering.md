@@ -7,6 +7,9 @@ Maintain a small, typed, concurrency-safe Go event-stream library. Keep the live
 - **Identity is type-derived, not UUID-derived.** `EventChannel[TStream]` identity is `EventChannel[TStream.name]` (e.g. `EventChannel[AuthStream]`). `Stream[TStream,TEvent]` identity is `Stream[TStream.name,TEvent]` (e.g. `Stream[AuthStream,AuthTokenValidEvent]`). Use a stable canonical type-name representation appropriate to Go types; do not rely on ambiguous bare names if package-qualified identity is needed to avoid collisions.
 - `EventChannel` and `Stream` do not own or generate UUIDs. Do not add UUID recovery, identity catalogs, or deterministic UUID derivation.
 - Event UUIDs remain for individual event identity unless the user explicitly changes that requirement.
+- **Public creation boundary (approved):** consumers create channels only with `NewEventChannel[TStream]()` (no storage argument) and create/obtain streams only through `channel.NewStream()`. Disk storage, restore lookup, stream construction/registration, and writer ownership remain internal. Consumers must not construct `Stream` directly; rename/remove public `New(channel, bufferSize)` in favor of an internal constructor (e.g. `newStream`) when implementing this boundary. `Stream` may remain a public type for returned values and methods, but not publicly constructible.
+- `EventChannel.NewStream()` performs internal restore-or-create: if the matching persisted stream record/state exists, restore it; otherwise initialize a new stream. The channel owns this choice. Public usage: `channel := NewEventChannel[TStream](); stream, err := channel.NewStream()`. No consumer-facing store type, store parameter, or storage configuration API is added.
+- Constructor error propagation and internal store location/initialization policy remain open design details to resolve during implementation; do not expose storage just to solve them.
 - No schema fingerprint framework. Delete `schema.go` and its fingerprint composition/base/effective machinery. Do not replace it with another schema/catalog subsystem.
 - Keep public generic relationship: `EventChannel[TStream]`, `Stream[TStream,TEvent]`, `Event[TEvent]`. One channel family can contain multiple streams with different event types.
 - The event/stream/channel human-readable identity strings are type-derived and are used to identify persisted channel/stream records. They are not instance IDs.
@@ -27,6 +30,7 @@ Maintain a small, typed, concurrency-safe Go event-stream library. Keep the live
 - Do not add public Validate/Serialize/Deserialize/TypeName methods or expose event payload/time/type metadata as public fields.
 
 ## Stream behavior
+- Public stream lifecycle is channel-mediated: `NewEventChannel[TStream]()` has no storage parameter; `channel.NewStream()` is the sole public creation/restore path. Stream construction/registration helpers stay unexported. Existing public `New(channel, bufferSize)` is slated to become private/remove during implementation.
 - Each stream delivers only `Event[TEvent]` to subscribers. Different `TEvent` streams coexist under one `TStream` channel.
 - Duplicate registration of the same event type within one channel returns `ErrDuplicateStream`.
 - Publish is atomic across subscribers: if any subscriber is full, return `ErrSlowSubscriber` and deliver to none. Publish with zero subscribers succeeds.
@@ -61,12 +65,12 @@ Maintain a small, typed, concurrency-safe Go event-stream library. Keep the live
 
 ## Current handoff (2026-11-22)
 
-- Repository: `gunesis-game/pulsyflux-stream`, branch `main`. Latest HEAD before this steering update: `01d9a7a08342258f958757b19c4510d508bc0430`.
+- Repository: `gunesis-game/pulsyflux-stream`, branch `main`. Latest HEAD before this steering update: `a6fd91756477bee14491f541325457ccb5f31aac`.
 - Latest code SHA: `c9e0d705e4f43a3cc1dec599d785f33591984207`. CI run [44967119308](https://github.com/gunesis-game/pulsyflux-stream/actions/runs/44967119308) passed Linux and Windows: format, race tests/coverage, vet, build. Aggregate statement coverage was 86.6% on each OS. Per-function coverage comparison for this run is still unextracted.
 - Private `appendEvent[TStream,TEvent]` validates event/policy, requires payload set, serializes/redacts, derives type identities, and persists event creation time. Tests cover metadata, redaction round-trip, and failure cases. Not wired into `Publish` or channel lifecycle.
 - Live `Publish` currently validates and preflights subscribers under stream mutex, then delivers the original event. EventChannel.Close marks closed and releases its mutex before closing streams. No writer lifecycle owner or replay dispatch exists.
 - Storage v3 documentation: `docs/storage_disk.md`, `docs/type_identity.md`. Section 14 explicitly defers live persistence integration. README now links the new `docs/storage_integration_contract.md`.
 - Integration contract draft recommends persist-before-delivery, synchronous backpressure/no queue, storage failure blocking delivery, per-stream sink, and startup-only replay separate from Publish. Replay may be deferred from first integration. It is design-only, no API/production wiring.
-- Next: decide whether persistence/replay belongs in this package at all. If proceeding, implement only after contract decisions are accepted; first candidate is private sink attachment and deterministic Publish tests. Also retrieve and compare exact-SHA per-function coverage Linux/Windows, beyond aggregate 86.6%.
+- Next task (approved direction): implement channel-owned restore-or-create lifecycle. Keep `NewEventChannel[TStream]()` public with no store argument; make `EventChannel.NewStream()` the consumer-facing creation/restore method. Storage lookup/open/recovery and `Stream` construction/registration must remain private. Convert the exported direct `New(channel, bufferSize)` constructor to internal construction. Resolve constructor error handling and private store path/ownership as part of implementation, without exposing storage API. Add focused tests for existing-record restore vs absent-record creation, registration/duplicate behavior, and failures. Then integrate persistence into Publish under the agreed contract. Also retrieve/compare exact-SHA per-function coverage Linux/Windows beyond aggregate 86.6%.
 - Acceptance: no public API without authorization; CI green on every code SHA; disk architecture docs match implementation; private integration contract clearly labeled draft; checkpoint updated after work.
 - Working state: committed changes, no uncommitted files known.
