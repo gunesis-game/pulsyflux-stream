@@ -38,8 +38,8 @@ type diskRecord struct {
 	ChannelIdentity string
 	StreamIdentity  string
 	Sequence        uint64
-	Timestamp      int64
-	Payload        json.RawMessage
+	Timestamp       int64
+	Payload         json.RawMessage
 }
 
 // jsonStringEncodedSize returns the exact byte count encoding/json uses for a
