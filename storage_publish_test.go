@@ -41,7 +41,7 @@ func TestPublishPersistsRedactedPayloadWithoutSubscribers(t *testing.T) {
 		t.Fatal(err)
 	}
 	reader, err := openDiskReader(dir)
-	if if err != nil {
+	if err != nil {
 		t.Fatalf("open persisted reader: %v", err)
 	}
 	defer reader.Close()
