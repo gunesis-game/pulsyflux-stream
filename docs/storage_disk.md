@@ -124,6 +124,8 @@ These are private storage fields, not a promise that identities are exposed thro
 
 ## 4. Segment layout and ordering
 
+The library's private storage root is the `pulsyflux-stream-data` subdirectory of the process's current working directory. At internal storage initialization, the library resolves the current working directory to an absolute path and uses `<absolute-working-directory>/pulsyflux-stream-data` for the storage directory. The library creates this directory as needed; callers do not provision or configure it, and its path is never exposed through public API. The resolved root remains fixed for that storage lifecycle even if process working directory changes later.
+
 A storage directory contains numbered segment files:
 
 ```text
@@ -397,7 +399,7 @@ A reliable, supported, tested directory-entry sync implementation is not current
 - **Windows:** no directory-sync implementation is enabled. The Windows build rejects strict mode exactly like Linux.
 - **Other operating systems:** strict mode remains unsupported.
 - **Ordinary writes:** buffered Append, Flush, explicit file Sync, rotation, and recovery remain available on Linux and Windows. Explicit file Sync does not make a newly created segment directory entry durable and must not be described as equivalent to `SyncEachAppend`.
-- **Provisioning boundary:** the caller remains responsible for durably provisioning the storage directory hierarchy. This does not remove the need to persist segment entries created by the writer; that is why strict per-append mode remains unavailable.
+- **Directory creation boundary:** the library creates its private storage directory hierarchy as needed. This does not remove the need to persist segment entries created by the writer; that is why strict per-append mode remains unavailable.
 
 The former platform-specific directory-sync helpers have been removed rather than retaining an unverified Linux-only durability path. Reintroduce strict mode only when both Linux and Windows have documented, reliable implementations and focused tests that prove the required ordering and fail-closed behavior. CI runs formatting, race-enabled tests, coverage reporting, vet, and build on both operating systems.
 
