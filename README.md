@@ -78,7 +78,8 @@ func main() {
 - A channel is `EventChannel[TStream]` and can own multiple differently typed streams: `Stream[TStream, TEvent1]`, `Stream[TStream, TEvent2]`, and so on. All streams in one channel share `TStream`; each stream has its own `TEvent`.
 - Channel grouping is determined by the `TStream` type; channel instances remain independent and process-local.
 - Channel identity is not storage: stream registration is owned by the channel instance and is process-local.
-- `EventChannel.Close()` closes streams owned by the channel, releases private writer ownership, and returns final-owner drain/flush/close errors. It is idempotent.
+- `EventChannel.Close()` stops channel work, closes active subscriptions on its caller-owned streams, releases private writer ownership, and returns final-owner drain/flush/close errors. It is idempotent.
+- `channel.Errors(bufferSize)` lazily returns the channel's single system-only `Stream[ErrorStream, StreamWriteErrorEvent]`; subscribe to it through the ordinary `Subscribe` API. A terminal writer failure is reported once per affected channel, preserves the underlying cause, bypasses persistence, and has one reserved subscriber slot. The error stream remains available through writer release/failure routing and closes with the channel.
 
 ## Events and redaction
 
@@ -103,7 +104,7 @@ Supported policy path traversal is limited to structs, pointers, and slices/arra
 
 The private disk writer currently stores event records using internal format revision 3, with type-derived channel and stream identities, event UUID, sequence, event-creation timestamp, and redacted payload. This is an unreleased development format, not a stable or production format. The private storage implementation is not public API.
 
-See [disk storage architecture](docs/storage_disk.md) and [type-derived identity](docs/type_identity.md) for implementation details. The [private persistence integration contract](docs/storage_integration_contract.md) documents the agreed async Publish persistence behavior and remaining ErrorStream integration.
+Private persistence is integrated into live `Publish`: the event is validated and preflighted against subscriber capacity, its redacted payload is admitted to a bounded asynchronous queue, and the original event is then delivered to subscribers. Successful `Publish` means queue admission and live delivery, not disk durability; queued or unflushed events may be lost on process crash. Terminal writer failures stop later persisted publishes, preserve the first cause, and are routed to affected channel owners through their ErrorStreams. See [disk storage architecture](docs/storage_disk.md), [type-derived identity](docs/type_identity.md), and the [private persistence integration contract](docs/storage_integration_contract.md) for implementation details and limits.
 
 ## Delivery semantics
 
@@ -129,6 +130,3 @@ CI runs formatting validation, race-enabled tests with coverage, vet, and build.
 ## Releases
 
 Push a semantic version tag (for example, `v1.0.0`). The release workflow tests, vets, and builds before creating a GitHub Release. No generated binary is required for Go module consumers.
-## Internal persistence design
-
-Private persistence is wired into live `Publish`: events are redacted, admitted to a bounded asynchronous queue, and then delivered live. Queue admission is not a durability guarantee; queued or unflushed events may be lost if the process crashes. Terminal disk failure routing through an owned ErrorStream, queue-saturation stress coverage, and removal of the stream registry/`Get()` remain incomplete. Storage stays private and replay remains deferred. See [disk storage architecture](docs/storage_disk.md), [type identity](docs/type_identity.md), and [the integration contract](docs/storage_integration_contract.md) for current details.
