@@ -4,10 +4,10 @@
 Implement terminal asynchronous writer-failure routing through channel-owned ErrorStreams, then remove the obsolete stream registry and `Get()` API.
 
 ## Current Repository State
-- **Persisted lifecycle phase:** IMPLEMENT (matches `cycle-index.json`).
+- **Persisted lifecycle phase:** RECONCILE (matches `cycle-index.json`).
 - Repository: `gunesis-game/pulsyflux-stream`
 - Branch: `main`
-- This cycle is in progress. The latest code checkpoint includes private async persistence, shared writer ownership, and Publish integration. Current ErrorStream and registry-removal changes are prepared for verification; independently confirm source and CI before relying on them.
+- This cycle is in progress. Private async persistence, shared writer ownership, Publish integration, channel-owned ErrorStreams, terminal failure routing, and registry/`Get()` removal are implemented. The current implementation checkpoint is committed and both Linux and Windows CI are green.
 
 ## Completed
 - Prior milestone documented the private bounded async writer, process-wide shared writer with owner count, channel writer ownership, redacted Publish persistence, zero-subscriber persistence, slow-subscriber preflight, and concurrent-producer persistence test.
@@ -41,7 +41,7 @@ Implement terminal asynchronous writer-failure routing through channel-owned Err
 - **Backward transition rule:** Return to DEFINE only if source inspection or tests demonstrate a real contradiction with the approved architecture or a missing requirement. Ordinary implementation choices are resolved autonomously.
 
 ## Next Task
-Add deterministic async-writer append/flush failure injection, then test first-cause propagation, owner fan-out/deduplication, queue saturation/backpressure, Publish-after-failure, and Close/failure races. Review the implementation and run exact-commit Linux/Windows CI; fix any failures before transitioning to VERIFY.
+Complete the RECONCILE audit: inspect the final implementation diff and call paths against all plan acceptance criteria and the approved architecture; verify focused documentation and links; then update the registry, plan, and handoff together. Only mark the cycle complete if the audit finds no remaining defect or unmet criterion.
 
 ## Acceptance Criteria
 See the cycle `plan/PLAN.md`. Do not mark complete until all criteria and required CI/coverage verification are satisfied.

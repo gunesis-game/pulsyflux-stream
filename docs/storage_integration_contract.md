@@ -1,6 +1,6 @@
 # Internal Persistence Integration Contract
 
-> **Current status:** private asynchronous persistence is integrated into live `Publish`. Channel-owned terminal ErrorStream routing is implemented, and the retrieval-only stream registry/`Get()` API has been removed. Focused verification and remaining stress/failure-injection coverage are in progress. Replay remains deferred.
+ > **Current status:** private asynchronous persistence is integrated into live `Publish`. Channel-owned terminal ErrorStream routing is implemented, and the retrieval-only stream registry/`Get()` API has been removed. Failure-injection, queue backpressure, owner fan-out, Publish-unblocking, and close-order tests pass under race-enabled Linux and Windows CI. Replay remains deferred.
 
 ## Public and ownership boundaries
 
@@ -45,13 +45,14 @@ Normal stream subscriptions observe the EventChannel close signal and unregister
 
 Replay is not part of the initial persistence integration. When implemented, it must use a separate typed delivery path (never Publish), preserve record sequence order, verify identities, and avoid interleaving with live Publish. Corruption, unknown identities, or decode errors must not be silently skipped.
 
-## Verification still required
+## Verification evidence
 
-- Inject append and flush failures and prove first-cause preservation, owner fan-out/deduplication, queue drain, and blocked-producer wake-up.
-- Prove ErrorStream cause propagation, one-notification semantics, reserved capacity, lazy creation after failure, and close ordering.
-- Stress bounded-queue saturation/backpressure, concurrent producers, channel Close while other owners remain, and final-owner shutdown.
-- Run exact-commit Linux and Windows CI for formatting, race-enabled tests/coverage, vet, build, and artifact upload.
-- Compare aggregate statement and per-function coverage from the same CI run; inspect platform differences rather than attempting to equalize coverage.
+- Deterministic append- and flush-failure injection verifies first-cause preservation, batch and pending-queue owner notification, owner deduplication, queue drain, and blocked-producer wake-up.
+- ErrorStream tests verify cause propagation, one-notification semantics, reserved capacity under business-buffer saturation, lazy creation after failure, system-only publishing, and close ordering.
+- Backpressure tests verify a full bounded queue blocks producers until capacity is released; Publish tests verify a writer failure wakes a blocked publisher and returns the terminal cause.
+- Shared-writer tests verify a non-final channel close leaves the writer available to remaining owners and final-owner close releases/reinitializes it.
+- Linux and Windows CI both pass formatting, `go test -race -coverprofile=coverage.out ./...`, `go vet ./...`, build, and coverage artifact upload.
+- Both platform artifacts report 86.0% aggregate statement coverage. Per-function reports are identical; no platform coverage discrepancy requires explanation or follow-up.
 
 ## Non-goals
 

@@ -383,7 +383,7 @@ These are the rules that the implementation and its tests are protecting.
 | `scanDiskRecords` | Startup recovery scan |
 | `appendEvent[TStream,TEvent]` | Event validation, serialization/redaction, type identities, creation timestamp; private typed persistence boundary |
 | `diskWriter` / `openDiskWriter` | Append, rotation, recovery, flush, sync, close |
-| `asyncDiskWriter` / `newAsyncDiskWriter` | Bounded queue, ordered worker, batching, failure routing and drain-close (not yet live-integrated) |
+| `asyncDiskWriter` / `newAsyncDiskWriter` | Bounded queue, ordered worker, batching, failure routing and drain-close, integrated with live Publish |
 | `diskSegments` / `segmentNum` | Segment discovery and naming rules |
 | `diskReader` / `openDiskReader` | Sequential multi-segment reader |
 | `readDiskRecord` | One-frame reader |
@@ -425,4 +425,4 @@ The private asynchronous writer is integrated into live `Stream.Publish` and `Ev
 - Channel Close closes the normal-stream subscription lifecycle, releases writer ownership, allows terminal failure routing to complete, and only then closes the ErrorStream.
 - EventChannel no longer retains a stream lookup registry. `New` creates independent stream values; callers retain the stream they create. The retrieval-only `Get()` API is removed.
 
-The focused integration contract is documented in [Storage Integration Contract](storage_integration_contract.md). Remaining verification work includes injected writer failures, queue saturation/backpressure stress, close/fan-out concurrency, exact-commit Linux and Windows CI, and coverage-profile comparison.
+The focused integration contract is documented in [Storage Integration Contract](storage_integration_contract.md). Failure-injection, queue backpressure, owner fan-out, Publish-unblocking, and ErrorStream close-order tests now pass under race-enabled Linux and Windows CI. Both platforms report identical 86.0% statement coverage and identical per-function coverage for this checkpoint.
