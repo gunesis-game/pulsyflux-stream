@@ -102,8 +102,8 @@ func TestAsyncWriterFailureRoutesToAllChannelErrorStreamsOnce(t *testing.T) {
 	cause := errors.New("shared writer append failure")
 	disk := &asyncDiskTestDouble{
 		appendStarted: make(chan struct{}),
-		appendGate: make(chan struct{}),
-		appendErr: cause,
+		appendGate:    make(chan struct{}),
+		appendErr:     cause,
 	}
 	writer, err := newAsyncDiskWriter(disk, 3, 32, time.Hour)
 	if err != nil {
@@ -165,8 +165,8 @@ func TestPublishUnblocksAndReceivesErrorWhenWriterFails(t *testing.T) {
 	cause := errors.New("blocked publish writer failure")
 	disk := &asyncDiskTestDouble{
 		appendStarted: make(chan struct{}),
-		appendGate: make(chan struct{}),
-		appendErr: cause,
+		appendGate:    make(chan struct{}),
+		appendErr:     cause,
 	}
 	writer, err := newAsyncDiskWriter(disk, 1, 32, time.Hour)
 	if err != nil {
