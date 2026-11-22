@@ -76,6 +76,18 @@ func (w *asyncDiskWriter) Close() error {
 func (w *asyncDiskWriter) run() {
 	ticker := time.NewTicker(w.flushEvery)
 	defer ticker.Stop()
+	go func() {
+		for {
+			select {
+			case <-ticker.C:
+				w.mu.Lock()
+				w.cond.Broadcast()
+				w.mu.Unlock()
+			case <-w.done:
+				return
+			}
+		}
+	}()
 	batchCount := 0
 	batchOwners := make(map[asyncWriterOwner]struct{})
 	for {
@@ -88,6 +100,18 @@ func (w *asyncDiskWriter) run() {
 			w.closeErr = w.disk.Close()
 			close(w.done)
 			return
+		}
+		if len(w.queue) == 0 && batchCount > 0 && !w.closed {
+			w.mu.Unlock()
+			if err := w.disk.Flush(); err != nil {
+				w.fail(err, batchOwners)
+				w.closeErr = w.disk.Close()
+				close(w.done)
+				return
+			}
+			batchCount = 0
+			clear(batchOwners)
+			continue
 		}
 		if len(w.queue) == 0 && w.closed {
 			w.mu.Unlock()
@@ -130,21 +154,8 @@ func (w *asyncDiskWriter) run() {
 			clear(batchOwners)
 		}
 
-		select {
-		case <-ticker.C:
-			if batchCount > 0 {
-				if err := w.disk.Flush(); err != nil {
-					w.fail(err, batchOwners)
-					w.closeErr = w.disk.Close()
-					close(w.done)
-					return
-				}
-				batchCount = 0
-				clear(batchOwners)
-			}
-		default:
-		}
 	}
+}
 }
 
 // fail sets the first terminal cause, drains pending queue items, and notifies
