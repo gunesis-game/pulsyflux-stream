@@ -178,11 +178,11 @@ func (s *Stream[TStream, TEvent]) Publish(event Event[TEvent]) error {
 		return fmt.Errorf("stream: prepare persisted event payload: %w", err)
 	}
 	if err := writer.Submit(asyncWriterItem{
-		owner: channel,
+		owner:           channel,
 		channelIdentity: channelTypeIdentity[TStream](),
-		streamIdentity: streamTypeIdentity[TStream, TEvent](),
-		timestamp: event.time,
-		payload: payload,
+		streamIdentity:  streamTypeIdentity[TStream, TEvent](),
+		timestamp:       event.time,
+		payload:         payload,
 	}); err != nil {
 		return fmt.Errorf("stream: enqueue persisted event: %w", err)
 	}
