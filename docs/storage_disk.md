@@ -18,11 +18,12 @@ The writer and reader are private implementation types. This file does not expos
 
 ## 2. Component map
 
-This is the high-level relationship between the types and the filesystem. The caller is responsible for passing a payload that has already crossed the package's private serialization/redaction boundary.
+This is the high-level relationship between typed Event persistence and the filesystem. The private `appendEvent[TStream,TEvent]` adapter owns the event-to-record boundary: it validates the Event, serializes and redacts its payload, derives channel/stream identities, and passes creation time to the low-level writer.
 
 ```mermaid
 flowchart TB
-    Caller["Private package caller"] -->|"Append(channelIdentity, streamIdentity, time, payload)"| Writer["diskWriter"]
+    TypedEvent["Event[TEvent]"] --> Adapter["appendEvent[TStream,TEvent]"]
+    Adapter -->|"Append(channelIdentity, streamIdentity, time, redacted payload)"| Writer["diskWriter"]
     Caller -->|"openDiskReader(dir)"| Reader["diskReader"]
 
     subgraph Codec["Record codec"]
@@ -199,7 +200,7 @@ flowchart TD
 
 ### 5.2 Append, rotation, and sequence assignment
 
-`Append` holds the writer mutex for the entire operation. It creates the next record with sequence `nextSequence + 1`, encodes it, rotates if the current non-empty segment would exceed the configured threshold, writes the frame, and optionally flushes and syncs it.
+`Append` holds the writer mutex for the entire operation. The typed `appendEvent` adapter prepares the redacted payload and type-derived identities before it calls `Append`. `Append` creates the next record with sequence `nextSequence + 1`, encodes it, rotates if the current non-empty segment would exceed the configured threshold, writes the frame, and optionally flushes and syncs it.
 
 ```mermaid
 flowchart TD
@@ -227,7 +228,7 @@ flowchart TD
 
 - Sequence numbers are authoritative ordering. Timestamps are metadata, not an ordering source.
 - The writer generates a new event UUID for each append.
-- The writer copies the payload bytes into the record before encoding. The caller supplies non-empty channel and stream type-identity strings.
+- The writer copies the payload bytes into the record before encoding. The low-level writer receives non-empty channel and stream type-identity strings from the private typed adapter.
 - Rotation happens only when the current segment is non-empty and the next frame would exceed `maxBytes`.
 - Therefore, a single frame larger than the configured segment threshold can occupy an otherwise-empty segment. The record-body limit still applies.
 - The configured default segment threshold is 64 MiB when `MaxSegmentBytes` is not positive.
@@ -378,6 +379,7 @@ These are the rules that the implementation and its tests are protecting.
 | `diskRecord` | Persisted record model |
 | `encodeDiskRecord` / `decodeDiskRecord` | Frame encoder and validator |
 | `scanDiskRecords` | Startup recovery scan |
+| `appendEvent[TStream,TEvent]` | Event validation, serialization/redaction, type identities, creation timestamp | Private typed persistence boundary |
 | `diskWriter` / `openDiskWriter` | Append, rotation, recovery, flush, sync, close |
 | `diskSegments` / `segmentNum` | Segment discovery and naming rules |
 | `diskReader` / `openDiskReader` | Sequential multi-segment reader |
