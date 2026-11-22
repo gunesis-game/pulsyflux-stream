@@ -22,7 +22,7 @@ import (
 )
 
 const (
-	recordVersion       uint16 = 2
+	recordVersion       uint16 = 3
 	recordHeaderBytes          = 8
 	recordChecksumBytes        = 4
 	maxRecordBytes             = 64 << 20
@@ -32,35 +32,14 @@ var recordMagic = [4]byte{'P', 'F', 'S', 'R'}
 var errRecordCorrupt = errors.New("stream: corrupt storage record")
 var errDirectorySyncUnsupported = errors.New("stream: SyncEachAppend requires durable directory sync, which is not currently supported")
 
-type schemaFingerprints struct {
-	EventBase        string
-	EventEffective   string
-	StreamBase       string
-	StreamEffective  string
-	ChannelBase      string
-	ChannelEffective string
-}
-
-func (s schemaFingerprints) valid() bool {
-	return s.EventBase != "" && s.EventEffective != "" &&
-		s.StreamBase != "" && s.StreamEffective != "" &&
-		s.ChannelBase != "" && s.ChannelEffective != ""
-}
-
 type diskRecord struct {
-	Version                     uint16
-	EventID                     uuid.UUID
-	StreamID                    uuid.UUID
-	ChannelID                   uuid.UUID
-	Sequence                    uint64
-	Timestamp                   int64
-	EventBaseFingerprint        string
-	EventEffectiveFingerprint   string
-	StreamBaseFingerprint       string
-	StreamEffectiveFingerprint  string
-	ChannelBaseFingerprint      string
-	ChannelEffectiveFingerprint string
-	Payload                     json.RawMessage
+	Version         uint16
+	EventID         uuid.UUID
+	ChannelIdentity string
+	StreamIdentity  string
+	Sequence        uint64
+	Timestamp      int64
+	Payload        json.RawMessage
 }
 
 // jsonStringEncodedSize returns the exact byte count encoding/json uses for a
@@ -164,26 +143,18 @@ func compactRawMessageSize(raw []byte, limit int) (int, error) {
 // materializing escaped/compacted copies.
 func diskRecordJSONSize(r diskRecord, limit int) (int, error) {
 	metadata := r
-	metadata.EventBaseFingerprint = ""
-	metadata.EventEffectiveFingerprint = ""
-	metadata.StreamBaseFingerprint = ""
-	metadata.StreamEffectiveFingerprint = ""
-	metadata.ChannelBaseFingerprint = ""
-	metadata.ChannelEffectiveFingerprint = ""
+	metadata.ChannelIdentity = ""
+	metadata.StreamIdentity = ""
 	metadata.Payload = json.RawMessage("null")
 	template, err := json.Marshal(metadata)
 	if err != nil {
 		return 0, err
 	}
-	// Replace the six empty JSON strings and the four-byte null token with
-	// their exact encoded sizes.
-	baseSize := len(template) - 6*2 - len("null")
-	baseSize += jsonStringEncodedSize(r.EventBaseFingerprint)
-	baseSize += jsonStringEncodedSize(r.EventEffectiveFingerprint)
-	baseSize += jsonStringEncodedSize(r.StreamBaseFingerprint)
-	baseSize += jsonStringEncodedSize(r.StreamEffectiveFingerprint)
-	baseSize += jsonStringEncodedSize(r.ChannelBaseFingerprint)
-	baseSize += jsonStringEncodedSize(r.ChannelEffectiveFingerprint)
+	// Replace the two empty JSON strings and the four-byte null token
+	// with their exact encoded sizes.
+	baseSize := len(template) - 2*2 - len("null")
+	baseSize += jsonStringEncodedSize(r.ChannelIdentity)
+	baseSize += jsonStringEncodedSize(r.StreamIdentity)
 	if baseSize > limit {
 		return 0, fmt.Errorf("stream: record exceeds size limit")
 	}
@@ -201,7 +172,7 @@ func encodeDiskRecord(r diskRecord) ([]byte, error) {
 	if r.Version != recordVersion {
 		return nil, fmt.Errorf("stream: unsupported record version %d", r.Version)
 	}
-	if r.EventID == uuid.Nil || r.StreamID == uuid.Nil || r.ChannelID == uuid.Nil || r.Sequence == 0 || r.Timestamp == 0 || r.EventBaseFingerprint == "" || r.EventEffectiveFingerprint == "" || r.StreamBaseFingerprint == "" || r.StreamEffectiveFingerprint == "" || r.ChannelBaseFingerprint == "" || r.ChannelEffectiveFingerprint == "" || len(r.Payload) == 0 {
+	if r.EventID == uuid.Nil || r.ChannelIdentity == "" || r.StreamIdentity == "" || r.Sequence == 0 || r.Timestamp == 0 || len(r.Payload) == 0 {
 		return nil, fmt.Errorf("%w: missing record field", errRecordCorrupt)
 	}
 	expectedBodySize, err := diskRecordJSONSize(r, maxRecordBytes)
@@ -242,7 +213,7 @@ func decodeDiskRecord(frame []byte) (diskRecord, error) {
 	if r.Version != recordVersion {
 		return r, fmt.Errorf("stream: unsupported record version %d", r.Version)
 	}
-	if r.EventID == uuid.Nil || r.StreamID == uuid.Nil || r.ChannelID == uuid.Nil || r.Sequence == 0 || r.Timestamp == 0 || r.EventBaseFingerprint == "" || r.EventEffectiveFingerprint == "" || r.StreamBaseFingerprint == "" || r.StreamEffectiveFingerprint == "" || r.ChannelBaseFingerprint == "" || r.ChannelEffectiveFingerprint == "" || len(r.Payload) == 0 {
+	if r.EventID == uuid.Nil || r.ChannelIdentity == "" || r.StreamIdentity == "" || r.Sequence == 0 || r.Timestamp == 0 || len(r.Payload) == 0 {
 		return r, errRecordCorrupt
 	}
 	return r, nil
@@ -440,7 +411,7 @@ func (w *diskWriter) newSegment() error {
 	return nil
 }
 
-func (w *diskWriter) Append(channelID, streamID uuid.UUID, schemas schemaFingerprints, at time.Time, payload []byte) (uint64, uuid.UUID, error) {
+func (w *diskWriter) Append(channelIdentity, streamIdentity string, at time.Time, payload []byte) (uint64, uuid.UUID, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.closed {
@@ -449,10 +420,7 @@ func (w *diskWriter) Append(channelID, streamID uuid.UUID, schemas schemaFingerp
 	if w.failed != nil {
 		return 0, uuid.Nil, w.failed
 	}
-	if !schemas.valid() {
-		return 0, uuid.Nil, fmt.Errorf("%w: missing schema fingerprint", errRecordCorrupt)
-	}
-	r := diskRecord{Version: recordVersion, EventID: uuid.New(), StreamID: streamID, ChannelID: channelID, Sequence: w.nextSequence + 1, Timestamp: at.UnixNano(), EventBaseFingerprint: schemas.EventBase, EventEffectiveFingerprint: schemas.EventEffective, StreamBaseFingerprint: schemas.StreamBase, StreamEffectiveFingerprint: schemas.StreamEffective, ChannelBaseFingerprint: schemas.ChannelBase, ChannelEffectiveFingerprint: schemas.ChannelEffective, Payload: append(json.RawMessage(nil), payload...)}
+	r := diskRecord{Version: recordVersion, EventID: uuid.New(), ChannelIdentity: channelIdentity, StreamIdentity: streamIdentity, Sequence: w.nextSequence + 1, Timestamp: at.UnixNano(), Payload: append(json.RawMessage(nil), payload...)}
 	frame, err := encodeDiskRecord(r)
 	if err != nil {
 		return 0, uuid.Nil, err
