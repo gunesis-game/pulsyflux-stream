@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"testing"
 	"sync"
+	"testing"
 )
 
 type persistenceTestChannel struct{}
