@@ -95,7 +95,7 @@ Supported policy path traversal is limited to structs, pointers, and slices/arra
 
 The private disk writer stores version-3 records with type-derived channel and stream identities, event UUID, sequence, event-creation timestamp, and redacted payload. Version-2 and older records are rejected; there is no migration support or public persistence/replay API.
 
-See [disk storage architecture](docs/storage_disk.md) and [type-derived identity](docs/type_identity.md) for implementation details.
+See [disk storage architecture](docs/storage_disk.md) and [type-derived identity](docs/type_identity.md) for implementation details. The [private persistence integration contract](docs/storage_integration_contract.md) is a design draft, not implemented behavior.
 
 ## Delivery semantics
 
