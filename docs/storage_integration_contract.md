@@ -83,3 +83,13 @@ No public storage configuration/API, automatic recovery migration, cross-process
 
 
 **Still pending:** `NewEventChannel`/EventChannel Close must acquire/release ownership with explicit constructor error propagation; typed Publish must preflight, redacted-encode, queue-admit, and then deliver live; ErrorStream creation and failure fan-out must be wired; integration tests for queue saturation, concurrent publishers, lifecycle and injected failures remain. This checkpoint does not imply persistence is active for public Publish calls.
+
+
+## EventChannel ownership wiring checkpoint
+
+- `NewEventChannel[TStream]()` now returns `(*EventChannel[TStream], error)` and acquires the process-wide private writer, propagating storage initialization errors.
+- `EventChannel.Close()` now returns an error and releases the private writer ownership after closing its owned streams. Final-owner Close drains/flushes/closes; non-final Close leaves the writer active. Close is idempotent.
+- Test helper `mustNewEventChannel` checks constructor errors and registers cleanup; channel Close errors are explicitly discarded only in test cleanup.
+- Exact code SHA `9f3c9d571149cc1b110436bfed90b599fe7bad45` passed Linux and Windows formatting, race tests/coverage, vet, and build. Coverage profiles from that run matched byte-for-byte at **82.8%** total statement coverage on both platforms.
+
+**Still pending:** live Publish persistence, error stream creation and failure routing, queue backpressure integration, and removal of the stream registry/Get API in line with steering. No persisted event records are currently written by public Publish.
