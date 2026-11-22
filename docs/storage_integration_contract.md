@@ -1,6 +1,6 @@
 # Internal Persistence Integration Contract
 
- > **Current status:** private asynchronous persistence is integrated into live `Publish`. Channel-owned terminal ErrorStream routing is implemented, and the retrieval-only stream registry/`Get()` API has been removed. Failure-injection, queue backpressure, owner fan-out, Publish-unblocking, and close-order tests pass under race-enabled Linux and Windows CI. Replay remains deferred.
+> **Current status:** private asynchronous persistence is integrated into live `Publish`. Channel-owned terminal ErrorStream routing is implemented, and the retrieval-only stream registry/`Get()` API has been removed. Failure-injection, queue backpressure, owner fan-out, Publish-unblocking, and close-order tests pass under race-enabled Linux and Windows CI. Replay remains deferred.
 
 ## Public and ownership boundaries
 

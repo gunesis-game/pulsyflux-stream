@@ -51,6 +51,9 @@ Follow the approved architecture and ErrorStream requirements in `steering.md`. 
 - [x] Step 2 (initial implementation) — add lazy channel-owned ErrorStream, terminal-cause retention/routing, system-only bypass, reserved notification capacity, and close-after-writer-release ordering.
 - [x] Step 4 (initial implementation) — remove the retrieval-only stream map and `Get()`; streams are caller-owned and channel shutdown is signalled without a lookup registry.
 - [x] Step 5 — reconcile storage and integration docs with the integrated implementation and completed verification.
-- [ ] Remaining — add writer failure injection, reserved-capacity and queue saturation/backpressure stress tests; review concurrency/lifecycle edges; run exact-commit Linux/Windows CI and compare coverage.
+- [x] Step 3 — add deterministic append/flush failure injection, first-cause preservation, owner fan-out/deduplication, blocked-producer and blocked-Publish wake-up, reserved-capacity, lazy ErrorStream, and close-order tests.
+- [x] Step 6 — exact-commit Linux and Windows CI pass formatting, race-enabled tests/coverage, vet, build, and artifact upload.
+- [x] Step 7 — compare Linux and Windows coverage artifacts: both report 86.0% aggregate statement coverage and identical per-function coverage.
+- [ ] Final — complete RECONCILE audit of code, tests, architecture, focused docs, and handoff before setting status complete.
 
 Progress is updated as work is completed. The registry `current_phase` is authoritative; this section records the operational checkpoint.

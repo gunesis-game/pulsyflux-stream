@@ -21,13 +21,16 @@ Implement terminal asynchronous writer-failure routing through channel-owned Err
 - Disk storage remains private; no release/version bump; replay remains deferred.
 
 ## Verification
+
 - Added lazy channel-owned `Errors(bufferSize)` returning a system-only `Stream[ErrorStream, StreamWriteErrorEvent]`; it retains and routes the first terminal writer cause once, bypasses persistence, and reserves one subscriber slot.
-- Changed channel Close to keep ErrorStream alive through writer ownership release/failure routing, then close it. Normal stream subscriptions observe the channel close signal without a retained stream registry.
-- Removed the stream lookup map and `Get()`; `New` now returns independent caller-owned stream instances, including when event types repeat.
-- Updated stream tests for the new ownership model and added ErrorStream cause, lazy-after-failure, system-only, and close-order tests.
-- Reconciled `docs/storage_disk.md` and `docs/storage_integration_contract.md` with current implementation.
-- These changes are not yet committed or CI-verified. Local Go execution is unavailable in this assistant environment; after a reviewed checkpoint, use exact-commit GitHub Actions CI and inspect all jobs/logs/artifacts.
-- Prior 82.4% coverage is historical only; compare Linux/Windows aggregate and per-function coverage from the same new CI run.
+- Channel Close keeps ErrorStream alive through writer ownership release/failure routing, then closes it. Normal stream subscriptions observe the channel close signal without a retained stream registry.
+- Removed the stream lookup map and `Get()`; `New` returns independent caller-owned stream instances.
+- Added deterministic append/flush failure injection, first-cause preservation, failed-batch and pending-queue owner fan-out, owner deduplication, blocked-producer wake-up, queue backpressure, blocked Publish, reserved-capacity saturation, lazy-after-failure, system-only, and close-order tests.
+- Shared-writer tests cover non-final owner release and final-owner shutdown/reinitialization.
+- Updated `docs/storage_disk.md` and `docs/storage_integration_contract.md` to match the integrated behavior and verification.
+- Exact-commit Linux and Windows CI both pass formatting, race-enabled tests/coverage, vet, build, and coverage artifact upload.
+- Both platforms report 86.0% aggregate statement coverage. Their per-function coverage reports are identical.
+- Local Go execution is unavailable in this assistant environment; verification is from exact-commit remote CI jobs and downloaded coverage artifacts.
 
 ## Outstanding Risks
 - Error notification routing must not deadlock when writer failure callbacks occur while Publish holds synchronization.
@@ -36,9 +39,9 @@ Implement terminal asynchronous writer-failure routing through channel-owned Err
 - Validate docs against implementation.
 
 ## Current Phase Checkpoint
-- **Phase:** IMPLEMENT
-- **Exit condition:** A coherent ErrorStream/failure-routing implementation with focused tests is ready for VERIFY.
-- **Backward transition rule:** Return to DEFINE only if source inspection or tests demonstrate a real contradiction with the approved architecture or a missing requirement. Ordinary implementation choices are resolved autonomously.
+- **Phase:** RECONCILE
+- **Exit condition:** Confirm the final diff, plan acceptance criteria, architecture decisions, focused documentation, and this handoff agree. If the audit finds a defect, return to IMPLEMENT; if it finds a genuine design gap, return to DEFINE.
+- **Backward transition rule:** Do not reopen settled decisions without concrete contradictory evidence.
 
 ## Next Task
 Complete the RECONCILE audit: inspect the final implementation diff and call paths against all plan acceptance criteria and the approved architecture; verify focused documentation and links; then update the registry, plan, and handoff together. Only mark the cycle complete if the audit finds no remaining defect or unmet criterion.
