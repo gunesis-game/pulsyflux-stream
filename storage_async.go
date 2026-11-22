@@ -38,7 +38,9 @@ type asyncDiskWriter struct {
 }
 
 func newAsyncDiskWriter(disk *diskWriter, queueSize, batchSize int, flushEvery time.Duration) (*asyncDiskWriter, error) {
-	if disk == nil { return nil, errors.New("stream: nil disk writer") }
+	if disk == nil {
+		return nil, errors.New("stream: nil disk writer")
+	}
 	if queueSize < 1 || batchSize < 1 || flushEvery <= 0 {
 		return nil, errors.New("stream: invalid async writer settings")
 	}
@@ -55,8 +57,12 @@ func (w *asyncDiskWriter) Submit(item asyncWriterItem) error {
 	for len(w.queue) >= w.capacity && !w.closed && w.failure == nil {
 		w.cond.Wait()
 	}
-	if w.failure != nil { return w.failure }
-	if w.closed { return ErrClosed }
+	if w.failure != nil {
+		return w.failure
+	}
+	if w.closed {
+		return ErrClosed
+	}
 	w.queue = append(w.queue, item)
 	w.cond.Signal()
 	return nil
@@ -109,7 +115,6 @@ func (w *asyncDiskWriter) run() {
 				w.mu.Unlock()
 				continue
 			}
-			
 			w.mu.Unlock()
 			if err := w.disk.Flush(); err != nil {
 				w.fail(err, batchOwners)
@@ -143,13 +148,17 @@ func (w *asyncDiskWriter) run() {
 
 		_, _, err := w.disk.Append(item.channelIdentity, item.streamIdentity, item.timestamp, item.payload)
 		if err != nil {
-			if item.owner != nil { batchOwners[item.owner] = struct{}{} }
+			if item.owner != nil {
+				batchOwners[item.owner] = struct{}{}
+			}
 			w.fail(err, batchOwners)
 			w.closeErr = w.disk.Close()
 			close(w.done)
 			return
 		}
-		if item.owner != nil { batchOwners[item.owner] = struct{}{} }
+		if item.owner != nil {
+			batchOwners[item.owner] = struct{}{}
+		}
 		batchCount++
 		if batchCount >= w.batchSize {
 			if err := w.disk.Flush(); err != nil {
@@ -169,13 +178,19 @@ func (w *asyncDiskWriter) run() {
 // the distinct owners whose batch or queued records could not be persisted.
 func (w *asyncDiskWriter) fail(err error, owners map[asyncWriterOwner]struct{}) {
 	w.mu.Lock()
-	if w.failure == nil { w.failure = err }
+	if w.failure == nil {
+		w.failure = err
+	}
 	cause := w.failure
 	for _, item := range w.queue {
-		if item.owner != nil { owners[item.owner] = struct{}{} }
+		if item.owner != nil {
+			owners[item.owner] = struct{}{}
+		}
 	}
 	clear(w.queue)
 	w.cond.Broadcast()
 	w.mu.Unlock()
-	for owner := range owners { owner.storageWriteFailed(cause) }
+	for owner := range owners {
+		owner.storageWriteFailed(cause)
+	}
 }
