@@ -63,6 +63,7 @@ func (w *asyncDiskWriter) Submit(item asyncWriterItem) error {
 	if w.closed {
 		return ErrClosed
 	}
+	item.payload = append([]byte(nil), item.payload...)
 	w.queue = append(w.queue, item)
 	w.cond.Signal()
 	return nil
