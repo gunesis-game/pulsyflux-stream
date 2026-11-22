@@ -24,7 +24,7 @@ This is the high-level relationship between typed Event persistence and the file
 flowchart TB
     TypedEvent["Event[TEvent]"] --> Adapter["appendEvent[TStream,TEvent]"]
     Adapter -->|"Append(channelIdentity, streamIdentity, time, redacted payload)"| Writer["diskWriter"]
-    Caller -->|"openDiskReader(dir)"| Reader["diskReader"]
+    ReaderCaller["Private reader caller"] -->|"openDiskReader(dir)"| Reader["diskReader"]
 
     subgraph Codec["Record codec"]
       Encode["encodeDiskRecord"]
@@ -379,7 +379,7 @@ These are the rules that the implementation and its tests are protecting.
 | `diskRecord` | Persisted record model |
 | `encodeDiskRecord` / `decodeDiskRecord` | Frame encoder and validator |
 | `scanDiskRecords` | Startup recovery scan |
-| `appendEvent[TStream,TEvent]` | Event validation, serialization/redaction, type identities, creation timestamp | Private typed persistence boundary |
+| `appendEvent[TStream,TEvent]` | Event validation, serialization/redaction, type identities, creation timestamp; private typed persistence boundary |
 | `diskWriter` / `openDiskWriter` | Append, rotation, recovery, flush, sync, close |
 | `diskSegments` / `segmentNum` | Segment discovery and naming rules |
 | `diskReader` / `openDiskReader` | Sequential multi-segment reader |
