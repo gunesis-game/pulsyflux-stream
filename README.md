@@ -34,8 +34,15 @@ type PlayerJoined struct {
 }
 
 func main() {
-	channel := stream.NewEventChannel[PlayerEventFamily]()
-	defer channel.Close()
+	channel, err := stream.NewEventChannel[PlayerEventFamily]()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer func() {
+		if err := channel.Close(); err != nil {
+			log.Printf("close event channel: %v", err)
+		}
+	}()
 
 	joined, err := stream.New[PlayerEventFamily, PlayerJoined](channel, 16)
 	if err != nil {
@@ -66,13 +73,12 @@ func main() {
 
 ## Event channels and streams
 
-- `NewEventChannel[TStream]()` creates a logical grouping based on the `TStream` type.
-- `New[TStream, TEvent](channel, bufferSize)` registers a typed stream in that grouping. It errors for nil/invalid/closed channels, non-positive buffer sizes, or duplicate registration of T within the same channel.
-- `Get[TStream, TEvent](channel)` returns the registered stream or nil if unavailable.
+- `NewEventChannel[TStream]()` creates a logical grouping based on the `TStream` type and acquires the private shared writer. It returns a channel and an error; storage initialization failures are reported during construction.
+- `New[TStream, TEvent](channel, bufferSize)` creates a typed stream in that grouping. It errors for nil/closed channels or non-positive buffer sizes.
 - A channel is `EventChannel[TStream]` and can own multiple differently typed streams: `Stream[TStream, TEvent1]`, `Stream[TStream, TEvent2]`, and so on. All streams in one channel share `TStream`; each stream has its own `TEvent`.
 - Channel grouping is determined by the `TStream` type; channel instances remain independent and process-local.
 - Channel identity is not storage: stream registration is owned by the channel instance and is process-local.
-- `EventChannel.Close()` closes its registered streams and prevents new registrations through that instance. It is idempotent.
+- `EventChannel.Close()` closes streams owned by the channel, releases private writer ownership, and returns final-owner drain/flush/close errors. It is idempotent.
 
 ## Events and redaction
 
@@ -97,7 +103,7 @@ Supported policy path traversal is limited to structs, pointers, and slices/arra
 
 The private disk writer currently stores event records using internal format revision 3, with type-derived channel and stream identities, event UUID, sequence, event-creation timestamp, and redacted payload. This is an unreleased development format, not a stable or production format. The private storage implementation is not public API.
 
-See [disk storage architecture](docs/storage_disk.md) and [type-derived identity](docs/type_identity.md) for implementation details. The [private persistence integration contract](docs/storage_integration_contract.md) is a design draft, not implemented behavior.
+See [disk storage architecture](docs/storage_disk.md) and [type-derived identity](docs/type_identity.md) for implementation details. The [private persistence integration contract](docs/storage_integration_contract.md) documents the agreed async Publish persistence behavior and remaining ErrorStream integration.
 
 ## Delivery semantics
 
