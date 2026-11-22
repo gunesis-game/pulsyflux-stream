@@ -36,3 +36,24 @@ func reflectTypePackageName(t *testing.T, value any) string {
 	}
 	return typ.PkgPath() + "." + typ.Name()
 }
+
+
+type identityTestGeneric[T any] struct{}
+
+func TestCanonicalTypeIdentityUnnamedAndNil(t *testing.T) {
+	unnamed := reflect.TypeOf(struct{ Value int }{})
+	if got, want := canonicalTypeIdentity(unnamed), unnamed.String(); got != want {
+		t.Fatalf("unnamed type identity = %q, want structural %q", got, want)
+	}
+	if got := canonicalTypeIdentity(nil); got != "<nil>" {
+		t.Fatalf("nil type identity = %q, want <nil>", got)
+	}
+}
+
+func TestCanonicalTypeIdentityGenericNamedType(t *testing.T) {
+	typ := reflect.TypeOf(identityTestGeneric[int]{})
+	want := typ.PkgPath() + "." + typ.Name()
+	if got := canonicalTypeIdentity(typ); got != want {
+		t.Fatalf("generic named type identity = %q, want %q", got, want)
+	}
+}
