@@ -72,6 +72,7 @@ func register[TStream, TEvent any](channel *EventChannel[TStream], bufferSize in
 		return nil, ErrNilEventChannel
 	}
 	eventType := reflect.TypeOf((*TEvent)(nil)).Elem()
+
 	channel.mu.Lock()
 	defer channel.mu.Unlock()
 	if channel.closed {
