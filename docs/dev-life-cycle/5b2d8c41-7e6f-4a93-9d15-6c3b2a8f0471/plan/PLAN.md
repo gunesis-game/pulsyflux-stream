@@ -21,9 +21,9 @@ Implement terminal asynchronous persistence-failure propagation through channel-
 Follow the approved architecture and ErrorStream requirements in `steering.md`. Error notifications are system events and must never be persisted. The shared writer failure fan-out is owner-based and deduplicated, not registry-based. ErrorStream is channel-owned and exposed through `Errors(bufferSize)`; subscriptions use the normal Subscribe interface. One terminal failure notification per affected channel, with reserved delivery capacity. Preserve cause wrapping. Channel close must not prematurely close ErrorStream before ownership release and failure routing.
 
 ## Persisted execution phase
-- **Current phase:** RECONCILE
-- **Why:** Implementation and verification are complete for the scoped cycle. Deterministic append/flush failure injection, multi-owner fan-out, deduplication, queue backpressure, blocked Publish, reserved capacity, and close-order tests pass on Linux and Windows. Both CI jobs pass all required checks; coverage artifacts are identical at 86.0% aggregate statement coverage and per-function coverage.
-- **Phase exit:** Audit final implementation against the plan, architecture, storage docs, and handoff. Resolve any mismatch before marking the cycle complete.
+- **Current phase:** COMPLETE
+- **Why:** All scoped implementation, test, documentation, and verification criteria have been met. The final source checkpoint and the subsequent documentation/lifecycle checkpoint passed the required Linux and Windows CI checks. Both platform coverage artifacts report 86.0% aggregate statement coverage with identical per-function results; the final audit found no remaining mismatch.
+- **Phase exit:** Terminal. Do not reopen without new evidence or an explicit follow-on objective.
 
 ## Ordered work
 1. Re-validate the current writer, channel, stream, event, and storage tests against the current repository.
@@ -54,6 +54,6 @@ Follow the approved architecture and ErrorStream requirements in `steering.md`. 
 - [x] Step 3 — add deterministic append/flush failure injection, first-cause preservation, owner fan-out/deduplication, blocked-producer and blocked-Publish wake-up, reserved-capacity, lazy ErrorStream, and close-order tests.
 - [x] Step 6 — exact-commit Linux and Windows CI pass formatting, race-enabled tests/coverage, vet, build, and artifact upload.
 - [x] Step 7 — compare Linux and Windows coverage artifacts: both report 86.0% aggregate statement coverage and identical per-function coverage.
-- [ ] Final — complete RECONCILE audit of code, tests, architecture, focused docs, and handoff before setting status complete.
+- [x] Final — reconcile implementation, tests, architecture, focused docs, and handoff; no unmet acceptance criterion remains.
 
 Progress is updated as work is completed. The registry `current_phase` is authoritative; this section records the operational checkpoint.
