@@ -8,6 +8,81 @@ import (
 	"time"
 )
 
+type firstClosingChannel struct{}
+type remainingOwnerChannel struct{}
+type remainingOwnerEvent struct {
+	Value string `json:"value"`
+}
+
+func TestClosingOneChannelKeepsSharedWriterAvailableForRemainingOwner(t *testing.T) {
+	first, err := NewEventChannel[firstClosingChannel]()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Close()
+	remaining, err := NewEventChannel[remainingOwnerChannel]()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer remaining.Close()
+	stream, err := New[remainingOwnerChannel, remainingOwnerEvent](remaining, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := first.Close(); err != nil {
+		t.Fatalf("close first owner: %v", err)
+	}
+	event, err := NewEvent[remainingOwnerEvent](NewRedactionPolicy())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := event.SetData(remainingOwnerEvent{Value: "remaining owner"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := stream.Publish(event); err != nil {
+		t.Fatalf("Publish after another channel closed: %v", err)
+	}
+	if err := remaining.Close(); err != nil {
+		t.Fatalf("close final owner: %v", err)
+	}
+
+	dir, err := privateStorageRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader, err := openDiskReader(dir)
+	if err != nil {
+		t.Fatalf("open reader: %v", err)
+	}
+	defer reader.Close()
+	found := false
+	for {
+		record, err := reader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("read record: %v", err)
+		}
+		if record.ChannelIdentity != channelTypeIdentity[remainingOwnerChannel]() ||
+			record.StreamIdentity != streamTypeIdentity[remainingOwnerChannel, remainingOwnerEvent]() {
+			continue
+		}
+		var got remainingOwnerEvent
+		if err := json.Unmarshal(record.Payload, &got); err != nil {
+			t.Fatalf("decode record: %v", err)
+		}
+		if got.Value != "remaining owner" {
+			t.Fatalf("persisted value = %q", got.Value)
+		}
+		found = true
+	}
+	if !found {
+		t.Fatal("remaining channel event was not persisted")
+	}
+}
+
 func TestSharedWriterManagerKeepsWriterUntilFinalOwner(t *testing.T) {
 	manager := &sharedWriterManager{}
 	dir := t.TempDir()
