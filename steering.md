@@ -44,8 +44,38 @@ Execute this protocol autonomously whenever asked to develop, fix, implement, co
 - `sequence` records cycle creation order. `execution_order` is the authoritative order in which cycles first entered implementation, and is used to reconstruct historical implementation order. Resuming a cycle does not change its execution order.
 - Cycles remain in the registry after completion. Do not delete completed history or reorder the registry to manipulate chronology. Pending-cycle priority is represented by array order among pending cycles; reorder only with an explicit rationale while preserving the sequence and execution_order values.
 - Each cycle records UTC ISO-8601 `created_at`, `started_at`, and `completed_at`. If historical time is unknown, use null rather than invent it. `started_at` is set on first start; `completed_at` only on verified completion.
-- Registry must validate schema version, unique UUIDs, unique positive sequence values, unique positive execution_order values when assigned, allowed statuses, timestamp consistency, pending execution_order null, and the single-in-progress invariant. Every indexed cycle must have both required cycle documents.
+- Registry must validate schema version, unique UUIDs, unique positive sequence values, unique positive execution_order values when assigned, allowed statuses, valid current_phase/status combinations, timestamp consistency, pending execution_order null, and the single-in-progress invariant. Every indexed cycle must have both required cycle documents.
 - `docs_reviewed_through_execution_order` records the latest implementation-order boundary included in a consolidated documentation audit. Do not advance it unless the audit actually reviewed all completed cycles up to that boundary.
+
+### Explicit phase model (MANDATORY)
+
+A cycle has one persisted `current_phase` in the lifecycle registry. Phases describe the engineering work currently expected; they are not separate AI sessions, approval gates, or reasons to stop and report instead of working.
+
+Allowed phases and exit evidence:
+
+1. **ASSESS** — Establish the actual repository state: confirm `main`, read this steering file, validate the registry and cycle documents, inspect the latest code/CI evidence, and identify the next unfinished plan task. Exit when the cycle objective, current state, and next action are known. Do not repeat assessment without new evidence.
+2. **DEFINE** — Turn the next task into an actionable implementation decision: identify affected code/tests/docs, relevant approved architecture, edge cases, and a concrete test/acceptance condition. Reuse the existing cycle plan; do not rewrite it or reopen settled decisions without a real contradiction. Exit when the next change is sufficiently specified to implement.
+3. **IMPLEMENT** — Make the source and test changes. Resolve ordinary engineering choices autonomously within approved architecture. Update focused documentation alongside implementation when behavior/contracts change. Exit when there is a coherent, reviewable change with tests, not merely a proposal, checklist, or explanation.
+4. **VERIFY** — Review the diff and execute the required checks locally or through exact-commit CI. Inspect actual results and artifacts. If a check fails, return to IMPLEMENT and correct it. If results expose a genuine architectural contradiction or missing requirement, return to DEFINE with the evidence. Exit to RECONCILE only when the current implementation checkpoint meets its applicable technical acceptance criteria.
+5. **RECONCILE** — Audit the implementation against the plan, acceptance criteria, focused docs, architecture, and handoff. Documentation is maintained during IMPLEMENT; this phase is the final consistency audit, not a reason to defer documentation. If the audit exposes a code/test defect, return to IMPLEMENT; if it exposes a real design gap, return to DEFINE. Exit when all cycle requirements and documentation gates are satisfied.
+6. **COMPLETE** — A terminal phase only. Set it together with registry status `complete` and `completed_at`, only after all completion gates pass. A session ending, a commit, or a green partial CI run is not completion.
+
+Permitted transitions:
+- ASSESS → DEFINE (or directly to IMPLEMENT when the approved plan already makes the next task actionable).
+- DEFINE → IMPLEMENT.
+- IMPLEMENT → VERIFY.
+- VERIFY → IMPLEMENT for a failed check/defect; VERIFY → DEFINE only for a demonstrated architectural contradiction or missing requirement; otherwise VERIFY → RECONCILE.
+- RECONCILE → IMPLEMENT for a code/test defect; RECONCILE → DEFINE for a genuine design gap; otherwise RECONCILE → COMPLETE.
+- Never move backwards merely because an agent is uncertain, wants to re-read everything, or prefers more planning. State the concrete evidence that justifies a backward transition.
+
+**Phase persistence and session continuity:**
+- Every registry cycle has `current_phase`, one of `assess`, `define`, `implement`, `verify`, `reconcile`, or `complete`.
+- A pending cycle starts at `assess`. An in-progress cycle records its actual phase. A completed cycle must have phase `complete`. The phase must agree with status; it is not inferred from chat or handoff prose.
+- On resume, continue from the recorded phase and its next action. Do not restart at ASSESS or DEFINE simply because a new session or agent begins.
+- Update `current_phase` when a transition occurs, and update the plan/handoff checkpoint in the same work unit. The registry is authoritative if prose differs.
+- Persist meaningful progress in the plan/handoff before stopping. Do not manufacture a phase transition to make a session look productive.
+
+**Execution rule:** once a phase's exit condition is met, transition and continue into the next phase in the same session whenever tools and time permit. Do not stop after ASSESS or DEFINE when implementation is actionable. Do not stop after IMPLEMENT when verification can be run. A blocker must be concrete, evidenced, and recorded; lack of local tooling alone is not a blocker because the remote Git/CI loop below is mandatory.
 
 ### Start-of-cycle protocol
 
@@ -55,11 +85,11 @@ Execute this protocol autonomously whenever asked to develop, fix, implement, co
 4. If none is `in-progress`, select the first `pending` cycle in index priority order and start it, recording its execution_order and started_at once.
 5. If there are no pending cycles, assess repository needs. Follow user direction; if the next objective is strategic or unclear, discuss before creating a cycle. Do not invent busywork.
 6. Read the selected cycle's `PLAN.md` and `HANDOFF.md`. Validate handoff against current branch, files, tests, and CI; it is a checkpoint, not unquestionable truth.
-7. Resume the next actionable task without repeating investigation unless new evidence warrants it.
+7. Resume from the cycle's persisted `current_phase`; read the matching phase checkpoint in the plan/handoff and take its next action. Do not restart the lifecycle at ASSESS on a session boundary.
 
 ### Plan phase — required for every cycle
 
-A cycle plan must specify objective, problem, scope/non-goals, relevant context/design, dependencies and risks, ordered tasks, testable acceptance criteria, and progress. Validate it against repository reality before implementation. Identify a clear next task and criteria; revise the plan when evidence or completed work requires it. Avoid planning churn when implementation is actionable.
+A cycle plan must specify objective, problem, scope/non-goals, relevant context/design, dependencies and risks, ordered tasks, testable acceptance criteria, and progress. It must also identify the current phase, the next concrete action, and the evidence required to exit that phase. Validate it against repository reality before implementation. Revise it when evidence or completed work requires it; do not re-plan settled work. Once the next task is actionable, move to IMPLEMENT and make the change.
 
 ### Remote Git/CI execution loop — mandatory when local execution is unavailable
 
@@ -80,7 +110,8 @@ The Git workflow and CI are an engineering feedback loop that allows the AI to v
 
 ### Execute and verify
 
-- Make coherent engineering progress. Decide routine technical details autonomously within approved architecture; escalate genuinely blocking ambiguity, conflicting requirements, credentials, authorization, destructive actions, or major strategic decisions.
+- Follow the persisted phase model above; do not substitute repeated assessment, planning, or status narration for implementation.
+- In IMPLEMENT, make coherent engineering progress. Decide routine technical details autonomously within approved architecture; escalate genuinely blocking ambiguity, conflicting requirements, credentials, authorization, destructive actions, or major strategic decisions.
 - Implement tests with code. Update focused docs when behavior, contracts, architecture, or operating procedures change. Avoid unrelated refactors, unnecessary dependencies, placeholders, broken code, or weakened tests.
 - Run targeted and full checks locally when tooling exists. If unavailable, use CI. Clearly distinguish implemented, locally tested, CI-verified, committed, and pushed.
 - Review the actual diff and call paths, including API shape, concurrency/races, lifecycle/cleanup, edge cases, security/privacy, documentation, and tests. Fix defects and repeat verification.
@@ -110,10 +141,10 @@ Documentation acceptance checks include:
 - lifecycle controller (`steering.md`) contains process rules, not architecture/code documentation;
 - stale or conflicting docs are reconciled, and cross-links are valid.
 
-### Handoff phase — required before stopping
+### Handoff checkpoint — required before stopping
 
 Update the cycle's single `HANDOFF.md` with a factual, concise operational checkpoint even if interrupted or unsuccessful. Include objective/status, current repository state, completed changes, decisions/constraints, verification evidence and failures/not-run checks, outstanding risks, next specific task and acceptance criteria, relevant documentation state, and uncommitted/unpushed work. Do not make it a transcript. Git history tracks prior handoff revisions; do not create multiple handoff files per cycle.
-Update registry status and plan progress only when appropriate. Session ending does not complete a cycle.
+Record the persisted `current_phase`, its exit evidence, and the next concrete action in the handoff and plan. Update registry phase/status consistently. Session ending does not complete a cycle.
 
 ### Cycle completion
 
