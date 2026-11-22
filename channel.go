@@ -6,11 +6,11 @@ import (
 )
 
 type EventChannel[TStream any] struct {
-	mu      sync.RWMutex
-	streams map[reflect.Type]any
-	closed  bool
-	writer  *asyncDiskWriter
-	releaseWriter func() error
+	mu             sync.RWMutex
+	streams        map[reflect.Type]any
+	closed         bool
+	writer         *asyncDiskWriter
+	releaseWriter  func() error
 	storageFailure error
 }
 
