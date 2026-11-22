@@ -68,6 +68,7 @@ type Stream[TStream, TEvent any] struct {
 	reservedSlots      int
 	systemOnly         bool
 	closeOnChannelDone bool
+	pendingSystem      *Event[TEvent]
 	closed             bool
 }
 
@@ -116,6 +117,16 @@ func (s *Stream[TStream, TEvent]) Subscribe(ctx context.Context) (*Subscription[
 	s.nextID++
 	id := s.nextID
 	s.subs[id] = sub
+	if s.pendingSystem != nil {
+		event := *s.pendingSystem
+		s.pendingSystem = nil
+		for _, current := range s.subs {
+			select {
+			case current.ch <- event:
+			default:
+			}
+		}
+	}
 	s.mu.Unlock()
 
 	result := &Subscription[TStream, TEvent]{
@@ -171,18 +182,6 @@ func (s *Stream[TStream, TEvent]) Publish(event Event[TEvent]) error {
 	if s.systemOnly {
 		return ErrSystemStream
 	}
-	if err := event.validate(); err != nil {
-		return fmt.Errorf("stream: invalid event policy: %w", err)
-	}
-	if !event.dataSet {
-		return ErrUnsetEventData
-	}
-	// Preflight before queue admission: no persist-only publish on slow subscriber.
-	for _, sub := range s.subs {
-		if len(sub.ch) >= cap(sub.ch)-s.reservedSlots {
-			return ErrSlowSubscriber
-		}
-	}
 	channel.mu.RLock()
 	if channel.closed {
 		channel.mu.RUnlock()
@@ -195,6 +194,18 @@ func (s *Stream[TStream, TEvent]) Publish(event Event[TEvent]) error {
 	}
 	writer := channel.writer
 	channel.mu.RUnlock()
+	if err := event.validate(); err != nil {
+		return fmt.Errorf("stream: invalid event policy: %w", err)
+	}
+	if !event.dataSet {
+		return ErrUnsetEventData
+	}
+	// Preflight before queue admission: no persist-only publish on slow subscriber.
+	for _, sub := range s.subs {
+		if len(sub.ch) >= cap(sub.ch)-s.reservedSlots {
+			return ErrSlowSubscriber
+		}
+	}
 	if writer == nil {
 		return errors.New("stream: private storage writer unavailable")
 	}
@@ -225,6 +236,11 @@ func (s *Stream[TStream, TEvent]) publishSystem(event Event[TEvent]) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
+		return
+	}
+	if len(s.subs) == 0 {
+		pending := event
+		s.pendingSystem = &pending
 		return
 	}
 	for _, sub := range s.subs {
