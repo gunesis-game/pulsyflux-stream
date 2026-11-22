@@ -121,3 +121,6 @@ CI runs formatting validation, race-enabled tests with coverage, vet, and build.
 ## Releases
 
 Push a semantic version tag (for example, `v1.0.0`). The release workflow tests, vets, and builds before creating a GitHub Release. No generated binary is required for Go module consumers.
+## Internal persistence design
+
+Disk storage and its integration boundary are still private and not wired into live publishing. See [disk storage architecture](docs/storage_disk.md), [type identity](docs/type_identity.md), and the [draft integration contract](docs/storage_integration_contract.md) for implementation details and proposed semantics.
