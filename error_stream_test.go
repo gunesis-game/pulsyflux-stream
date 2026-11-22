@@ -88,21 +88,54 @@ func TestErrorStreamRemainsOpenUntilWriterReleaseCompletes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	cause := errors.New("close-time writer failure")
-	channel.storageWriteFailed(cause)
-	if err := channel.Close(); err != nil {
-		t.Fatalf("Close returned unexpected error: %v", err)
+	release := channel.releaseWriter
+	routed := make(chan struct{})
+	allowRelease := make(chan struct{})
+	channel.releaseWriter = func() error {
+		channel.storageWriteFailed(cause)
+		close(routed)
+		<-allowRelease
+		return release()
+	}
+
+	closeDone := make(chan error, 1)
+	go func() {
+		closeDone <- channel.Close()
+	}()
+	select {
+	case <-routed:
+	case <-time.After(time.Second):
+		t.Fatal("writer release did not route the terminal error")
 	}
 	select {
 	case event, ok := <-sub.Events():
 		if !ok {
-			t.Fatal("ErrorStream closed before delivering the terminal event")
+			t.Fatal("ErrorStream closed before writer release completed")
 		}
 		if !errors.Is(event.Data().Cause, cause) {
 			t.Fatalf("cause = %v, want %v", event.Data().Cause, cause)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for close-time error")
+	}
+	select {
+	case _, ok := <-sub.Events():
+		if !ok {
+			t.Fatal("ErrorStream closed while writer release was still blocked")
+		}
+	default:
+	}
+
+	close(allowRelease)
+	select {
+	case err := <-closeDone:
+		if err != nil {
+			t.Fatalf("Close returned unexpected error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("channel Close did not finish after writer release")
 	}
 	select {
 	case _, ok := <-sub.Events():
