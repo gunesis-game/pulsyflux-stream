@@ -7,7 +7,7 @@ Implement terminal asynchronous writer-failure routing through channel-owned Err
 - **Persisted lifecycle phase:** IMPLEMENT (matches `cycle-index.json`).
 - Repository: `gunesis-game/pulsyflux-stream`
 - Branch: `main`
-- This cycle is in progress. The latest reviewed checkpoint describes the private async writer and shared writer ownership as implemented; independently confirm current files and tests before relying on that summary.
+- This cycle is in progress. The latest code checkpoint includes private async persistence, shared writer ownership, and Publish integration. Current ErrorStream and registry-removal changes are prepared for verification; independently confirm source and CI before relying on them.
 
 ## Completed
 - Prior milestone documented the private bounded async writer, process-wide shared writer with owner count, channel writer ownership, redacted Publish persistence, zero-subscriber persistence, slow-subscriber preflight, and concurrent-producer persistence test.
@@ -21,9 +21,13 @@ Implement terminal asynchronous writer-failure routing through channel-owned Err
 - Disk storage remains private; no release/version bump; replay remains deferred.
 
 ## Verification
-- No new source changes or tests have been made in this cycle at this checkpoint.
-- Local Go execution is unavailable in this assistant environment; rely on exact-commit GitHub Actions CI for verification and inspect the actual jobs/logs.
-- The prior checkpoint reported matching Linux/Windows aggregate statement coverage of 82.4%; confirm with the relevant CI run and per-function reports before relying on it.
+- Added lazy channel-owned `Errors(bufferSize)` returning a system-only `Stream[ErrorStream, StreamWriteErrorEvent]`; it retains and routes the first terminal writer cause once, bypasses persistence, and reserves one subscriber slot.
+- Changed channel Close to keep ErrorStream alive through writer ownership release/failure routing, then close it. Normal stream subscriptions observe the channel close signal without a retained stream registry.
+- Removed the stream lookup map and `Get()`; `New` now returns independent caller-owned stream instances, including when event types repeat.
+- Updated stream tests for the new ownership model and added ErrorStream cause, lazy-after-failure, system-only, and close-order tests.
+- Reconciled `docs/storage_disk.md` and `docs/storage_integration_contract.md` with current implementation.
+- These changes are not yet committed or CI-verified. Local Go execution is unavailable in this assistant environment; after a reviewed checkpoint, use exact-commit GitHub Actions CI and inspect all jobs/logs/artifacts.
+- Prior 82.4% coverage is historical only; compare Linux/Windows aggregate and per-function coverage from the same new CI run.
 
 ## Outstanding Risks
 - Error notification routing must not deadlock when writer failure callbacks occur while Publish holds synchronization.
@@ -37,7 +41,7 @@ Implement terminal asynchronous writer-failure routing through channel-owned Err
 - **Backward transition rule:** Return to DEFINE only if source inspection or tests demonstrate a real contradiction with the approved architecture or a missing requirement. Ordinary implementation choices are resolved autonomously.
 
 ## Next Task
-Re-validate the current source and tests, then implement terminal writer-failure routing and the channel-owned ErrorStream with tests. Remove `Get()`/the retrieval-only registry in the coherent follow-up within this cycle. When the implementation checkpoint is coherent, transition the registry and this handoff to VERIFY; do not stop at another plan-only checkpoint.
+Add deterministic async-writer append/flush failure injection, then test first-cause propagation, owner fan-out/deduplication, queue saturation/backpressure, Publish-after-failure, and Close/failure races. Review the implementation and run exact-commit Linux/Windows CI; fix any failures before transitioning to VERIFY.
 
 ## Acceptance Criteria
 See the cycle `plan/PLAN.md`. Do not mark complete until all criteria and required CI/coverage verification are satisfied.

@@ -414,67 +414,15 @@ Because this project is not live or in production, record layouts may change inc
 Named types use package-qualified identities where available; unnamed type identities use Go's structural `reflect.Type.String()` fallback and are not guaranteed stable across code changes. Channel and stream identity strings are composed by the helpers in `type_identity.go`.
 
 
-## 14. Private asynchronous writer queue (foundation only)
+## 14. Integrated asynchronous persistence and channel lifecycle
 
-`storage_async.go` introduces an internal `asyncDiskWriter` around `diskWriter`. It serializes file access through one worker and uses a bounded queue. The current component is a foundation only: it is tested independently but is not yet connected to `Stream.Publish`, `EventChannel` construction/Close, the shared writer owner-count manager, or the internal ErrorStream.
+The private asynchronous writer is integrated into live `Stream.Publish` and `EventChannel` lifecycle code.
 
+- `NewEventChannel` acquires the process-wide shared writer; the manager tracks active owner count only and does not keep a channel registry.
+- `Publish` validates and preflights subscribers, prepares a redacted payload, submits to the bounded queue, then delivers the original event. Queue capacity applies backpressure; accepted order is preserved.
+- Queue items retain private owner references only for failure routing. The writer preserves the first terminal cause, clears pending items, wakes blocked producers, and notifies distinct owners represented by the failed batch and pending queue.
+- Each EventChannel lazily exposes one `Errors(bufferSize)` stream containing `StreamWriteErrorEvent`. Notifications bypass persistence, preserve the original cause, and reserve one subscriber-buffer slot. A failure received before `Errors` is requested is retained and delivered when the stream is created.
+- Channel Close closes the normal-stream subscription lifecycle, releases writer ownership, allows terminal failure routing to complete, and only then closes the ErrorStream.
+- EventChannel no longer retains a stream lookup registry. `New` creates independent stream values; callers retain the stream they create. The retrieval-only `Get()` API is removed.
 
-### Current queue behavior
-
-- Queue capacity is fixed at construction and admission blocks while the queue is full, using a condition variable to wait for space. This bounds queued items and applies backpressure.
-- Payload bytes are copied at admission, so caller mutation after `Submit` cannot change queued data.
-- The worker appends records in queue order, flushing when the batch size is reached or when the idle flush interval wakes it. `Close` stops admission, drains accepted records, flushes, and closes the underlying disk writer.
-- A terminal failure retains the first error, clears pending queue items, wakes blocked producers, and notifies each distinct owner represented by the current unflushed batch and queued items. Owner references are queue-local routing data; no global channel registry is present.
-- The first tests cover accepted-item ordering, draining on Close, repeated Close, payload-copy behavior, and deduplicated owner failure notification. Storage-failure injection, saturation/backpressure, concurrent producers, and lifecycle integration remain untested.
-
-This component does not yet implement the process-wide writer manager or channel ownership counting. Its constructor is private and receives a private `diskWriter`; this is not a public storage API.
-
-
-## 15. Live-stream integration is still pending
-
-The typed persistence adapter and asynchronous queue are not yet called by `Stream.Publish` or `EventChannel` lifecycle code. The next integration stage must follow the approved contract in `docs/storage_integration_contract.md` and add focused tests for:
-
-
-- **Ordering:** preserve accepted queue order and ensure live delivery follows successful queue admission.
-- **Failure handling:** preflight failure must not queue or deliver; terminal disk failure rejects future persisted publishes and routes the underlying cause to affected channel ErrorStreams.
-- **Backpressure:** bounded queue blocks producers without unbounded memory growth.
-- **Lifecycle ownership:** process-wide writer owner count; individual Close releases; final Close drains/flushes/closes; ErrorStreams remain open until routing completes.
-- **Redaction:** only redacted copies are queued; live payloads remain unchanged.
-- **Replay:** explicitly deferred and not part of the initial integration.
-
-The low-level storage and async-queue components remain private and are not yet persistence-integrated.
-
-
-## 15. Private shared writer manager (foundation only)
-
-`storage_manager.go` introduces a private `sharedWriterManager` with process-wide singleton `processWriterManager`. It tracks active-owner count only and does not maintain an EventChannel registry. The private storage root resolves to `<cwd>/pulsyflux-stream-data`; the manager resolves the path to an absolute location.
-
-
-### Ownership behavior
-
-- The first acquisition opens the private disk writer and starts its bounded async worker.
-- Further acquisitions for the same absolute root share the same writer and increment the owner count.
-- An acquisition for a different root while the writer is active is rejected without changing ownership.
-- Each acquisition receives an idempotent release closure. A non-final release leaves the writer active; the final release clears manager state and drains, flushes, and closes the writer.
-- After final release, a later acquisition creates a fresh writer instance against the root, recovering the existing segment sequence.
-
-This manager is tested independently. It is **not yet wired into EventChannel construction or Close**, and Publish is not yet connected to async persistence. Those are the next integration tasks.
-
-
-## EventChannel storage ownership checkpoint
-
-`NewEventChannel[TStream]()` now acquires the private process-wide writer and returns `(*EventChannel[TStream], error)`, so storage initialization errors are explicit without exposing a store or path. `EventChannel.Close()` now returns the final-owner drain/flush/close error; it closes owned streams before releasing the writer, and remains idempotent. A channel stores only its writer handle and idempotent release closure, not a storage configuration. The test helper ensures channel Close runs even when a test also explicitly closes it.
-
-
-**Important:** writer ownership is wired into channel construction/Close, but `Stream.Publish` is not yet enqueueing persisted records. ErrorStream routing is also pending.
-
-
-## Publish persistence integration checkpoint
-
-`Stream.Publish` now serializes admission with channel Close, checks stream/channel state and subscriber capacity, prepares redacted JSON through the event payload encoder, enqueues an event record with typed channel/stream identity and event timestamp, and only then delivers the original live event. This applies even when there are no subscribers. Slow-subscriber preflight rejects the publish before persistence, avoiding persisted-only partial delivery.
-
-
-Two tests in `storage_publish_test.go` verify redacted persistence without subscribers and that slow-subscriber rejection does not persist the rejected event. The exact source SHA `a0ba628ba37d414f05642a6ce2001b5083ef8e94` passed GitHub Actions run `45004091710` on Linux and Windows, including formatting, race tests/coverage, vet and build. Coverage-profile comparison has not yet been completed for this run.
-
-
-**Remaining:** ErrorStream creation/failure routing and architecture cleanup (removing map registry/Get API) remain. Queue admission is integrated, but queue saturation/concurrent-publisher integration stress tests are still to be added.
+The focused integration contract is documented in [Storage Integration Contract](storage_integration_contract.md). Remaining verification work includes injected writer failures, queue saturation/backpressure stress, close/fan-out concurrency, exact-commit Linux and Windows CI, and coverage-profile comparison.

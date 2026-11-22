@@ -22,8 +22,8 @@ Follow the approved architecture and ErrorStream requirements in `steering.md`. 
 
 ## Persisted execution phase
 - **Current phase:** IMPLEMENT
-- **Why:** The objective, architecture, scope, ordered tasks, and acceptance criteria are already specified. The next useful work is to validate the current source/tests and then make the ErrorStream implementation changes; do not restart assessment or expand planning without new evidence.
-- **Phase exit:** A coherent implementation and its tests are ready for the VERIFY phase. Failed verification returns to IMPLEMENT with a concrete correction.
+- **Why:** The current implementation now includes channel-owned ErrorStream routing and has removed the lookup registry. The next action is verification-driven hardening: add deterministic writer failure injection and stress the failure/close/backpressure paths.
+- **Phase exit:** All scoped implementation and focused tests are coherent and ready for VERIFY. Failed verification returns to IMPLEMENT with a concrete correction.
 
 ## Ordered work
 1. Re-validate the current writer, channel, stream, event, and storage tests against the current repository.
@@ -47,7 +47,10 @@ Follow the approved architecture and ErrorStream requirements in `steering.md`. 
 - Cycle status is marked complete only after these criteria are verified.
 
 ## Progress
-- [ ] Step 1 — revalidate current source and tests
-- [ ] Steps 2–7 — implement, test, remove obsolete API/registry, reconcile docs, verify Linux/Windows CI and coverage
+- [x] Step 1 — revalidate current source and tests against the persisted IMPLEMENT checkpoint.
+- [x] Step 2 (initial implementation) — add lazy channel-owned ErrorStream, terminal-cause retention/routing, system-only bypass, reserved notification capacity, and close-after-writer-release ordering.
+- [x] Step 4 (initial implementation) — remove the retrieval-only stream map and `Get()`; streams are caller-owned and channel shutdown is signalled without a lookup registry.
+- [x] Step 5 (initial reconciliation) — update storage and integration docs to describe the integrated implementation and outstanding verification.
+- [ ] Remaining — add writer failure injection, reserved-capacity and queue saturation/backpressure stress tests; review concurrency/lifecycle edges; run exact-commit Linux/Windows CI and compare coverage.
 
 Progress is updated as work is completed. The registry `current_phase` is authoritative; this section records the operational checkpoint.

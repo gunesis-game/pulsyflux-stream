@@ -19,9 +19,8 @@ var (
 	ErrNilEventChannel = errors.New("stream: nil event channel")
 	// ErrInvalidBufferSize is returned when New receives a buffer size less than one.
 	ErrInvalidBufferSize = errors.New("stream: buffer size must be greater than zero")
-	// ErrDuplicateStream is returned when an EventChannel[TStream] already owns a stream
-	// for the requested event type.
-	ErrDuplicateStream = errors.New("stream: event type already registered in channel")
+	// ErrSystemStream is returned when callers try to publish to an internal system stream.
+	ErrSystemStream = errors.New("stream: system stream only accepts internal notifications")
 	// ErrUnsetEventData is returned when publishing an event without SetData.
 	ErrUnsetEventData = errors.New("stream: event data was not set")
 )
@@ -65,13 +64,15 @@ type Stream[TStream, TEvent any] struct {
 	mu         sync.RWMutex
 	nextID     uint64
 	subs       map[uint64]*subscriber[TEvent]
-	bufferSize int
-	closed     bool
+	bufferSize         int
+	reservedSlots      int
+	systemOnly         bool
+	closeOnChannelDone bool
+	closed             bool
 }
 
-// New creates a stream with bufferSize slots per subscriber and registers it
-// in channel for event type TEvent. Each event type may be registered only once
-// in a given EventChannel[TStream]. Different channels own independent streams.
+// New creates an independent stream with bufferSize slots per subscriber.
+ // Streams are caller-owned values; EventChannel does not retain a lookup registry.
 // bufferSize must be greater than zero.
 func New[TStream, TEvent any](channel *EventChannel[TStream], bufferSize int) (*Stream[TStream, TEvent], error) {
 	if channel == nil {
@@ -92,10 +93,19 @@ func (s *Stream[TStream, TEvent]) Subscribe(ctx context.Context) (*Subscription[
 		ctx = context.Background()
 	}
 	sub := &subscriber[TEvent]{
-		ch:   make(chan Event[TEvent], s.bufferSize),
+		ch:   make(chan Event[TEvent], s.bufferSize+s.reservedSlots),
 		done: make(chan struct{}),
 	}
 
+	if s.closeOnChannelDone && s.channel != nil {
+		select {
+		case <-s.channel.done:
+			close(sub.ch)
+			close(sub.done)
+			return &Subscription[TStream, TEvent]{C: sub.ch}, ErrClosed
+		default:
+		}
+	}
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
@@ -119,6 +129,8 @@ func (s *Stream[TStream, TEvent]) Subscribe(ctx context.Context) (*Subscription[
 		case <-ctx.Done():
 			result.Close()
 		case <-sub.done:
+		case <-s.channelDone():
+			result.Close()
 		}
 	}()
 	return result, nil
@@ -130,10 +142,20 @@ func nilContext(ctx context.Context) bool {
 	return ctx == nil
 }
 
+func (s *Stream[TStream, TEvent]) channelDone() <-chan struct{} {
+	if s == nil || s.channel == nil || !s.closeOnChannelDone {
+		return nil
+	}
+	return s.channel.done
+}
+
 // Publish sends event to every active subscriber. Event timestamps are set
 // during construction and are internal to Event. With no subscribers, Publish
 // succeeds.
 func (s *Stream[TStream, TEvent]) Publish(event Event[TEvent]) error {
+	if s.systemOnly {
+		return ErrSystemStream
+	}
 	channel := s.channel
 	if channel == nil {
 		return ErrNilEventChannel
@@ -146,6 +168,9 @@ func (s *Stream[TStream, TEvent]) Publish(event Event[TEvent]) error {
 	if s.closed {
 		return ErrClosed
 	}
+	if s.systemOnly {
+		return ErrSystemStream
+	}
 	if err := event.validate(); err != nil {
 		return fmt.Errorf("stream: invalid event policy: %w", err)
 	}
@@ -154,7 +179,7 @@ func (s *Stream[TStream, TEvent]) Publish(event Event[TEvent]) error {
 	}
 	// Preflight before queue admission: no persist-only publish on slow subscriber.
 	for _, sub := range s.subs {
-		if len(sub.ch) == cap(sub.ch) {
+		if len(sub.ch) >= cap(sub.ch)-s.reservedSlots {
 			return ErrSlowSubscriber
 		}
 	}
@@ -191,6 +216,23 @@ func (s *Stream[TStream, TEvent]) Publish(event Event[TEvent]) error {
 		sub.ch <- event
 	}
 	return nil
+}
+
+// publishSystem delivers an internal notification without persistence or
+// channel publish serialization. A reserved slot keeps ordinary capacity
+// pressure from consuming the terminal-notification slot.
+func (s *Stream[TStream, TEvent]) publishSystem(event Event[TEvent]) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return
+	}
+	for _, sub := range s.subs {
+		select {
+		case sub.ch <- event:
+		default:
+		}
+	}
 }
 
 // Close closes the stream and all subscriber channels. It is idempotent.

@@ -1,6 +1,6 @@
 # Internal Persistence Integration Contract
 
-> **Current status:** private asynchronous persistence is integrated into live `Publish`. Redacted events are admitted to a bounded queue and delivered live after admission. ErrorStream terminal-failure routing, queue saturation/backpressure stress, and removal of `Get()`/the stream registry remain incomplete. Replay is deferred.
+> **Current status:** private asynchronous persistence is integrated into live `Publish`. Channel-owned terminal ErrorStream routing is implemented, and the retrieval-only stream registry/`Get()` API has been removed. Focused verification and remaining stress/failure-injection coverage are in progress. Replay remains deferred.
 
 ## Public and ownership boundaries
 
@@ -11,6 +11,7 @@
 - The private storage root is `<cwd>/pulsyflux-stream-data`, resolved to an absolute path when initialized.
 - A process-wide writer is shared by active EventChannels. Its manager tracks active ownership count only, not a channel registry. Queue entries hold private owner references solely for error fan-out.
 - Event owns payload validation, redaction and serialization. Stream owns typed live delivery. Channel owns typed identity and private storage lifecycle.
+- EventChannel does not retain a stream lookup registry. Callers retain the stream values returned by `New`; the retrieval-only `Get()` API is removed.
 
 ## Publish and async batching
 
@@ -27,34 +28,30 @@ Successful Publish means queue admission and live delivery, not disk persistence
 
 - Validation, unset-data, closed-channel, and slow-subscriber failures happen before queue admission and live delivery.
 - Fatal asynchronous disk failure makes the shared writer terminal and preserves the first underlying cause.
-- Pending and failed-batch queue owners are deduplicated and notified once per failure through their channel-local internal ErrorStream. This routing must not use a global channel registry.
-- Future persisted Publish attempts return an error wrapping the retained cause and notify the owning channel's ErrorStream.
-- System-error events bypass persistence to avoid recursive failures and retain the cause for `errors.Is`/`errors.As`.
-- ErrorStream is channel-owned, one per EventChannel, and exposed only through `Errors(bufferSize)`, which returns a typed `*Stream[ErrorStream, StreamWriteErrorEvent]`. Consumers use ordinary `Subscribe(ctx)`. Reserved system-error delivery capacity prevents business-event buffers from consuming notification capacity.
-- ErrorStream stays open until channel writer ownership is released and failure notifications are routed, then closes with the channel's other streams.
+- Pending and failed-batch queue owners are deduplicated and notified once per channel through the channel-owned internal ErrorStream. This routing does not use a global channel registry.
+- `EventChannel.Errors(bufferSize)` lazily returns the one typed `*Stream[ErrorStream, StreamWriteErrorEvent]` for that channel. Consumers use ordinary `Subscribe(ctx)`.
+- The error event retains the original cause in its `Cause` field, so `errors.Is` and `errors.As` remain available. Error notifications bypass persistence to avoid recursive failures.
+- One subscriber slot is reserved for the terminal system notification. The system stream rejects public Publish calls.
+- A terminal cause is retained even if `Errors` has not yet been requested; requesting it later delivers the retained notification.
+- ErrorStream remains open through writer ownership release and terminal failure routing, then closes with the channel.
 
 ## Shared writer lifecycle
 
 Each EventChannel acquires shared writer ownership at construction. Closing one channel releases only its ownership; the writer remains active while other owners exist. Final-owner Close stops queue admission, drains accepted work, flushes and closes storage, returning shutdown errors. Close is idempotent. A later channel can initialize a fresh writer.
 
+Normal stream subscriptions observe the EventChannel close signal and unregister themselves; no channel-wide stream lookup/close registry is maintained.
+
 ## Replay (deferred)
 
 Replay is not part of the initial persistence integration. When implemented, it must use a separate typed delivery path (never Publish), preserve record sequence order, verify identities, and avoid interleaving with live Publish. Corruption, unknown identities, or decode errors must not be silently skipped.
 
-## Current implementation checkpoint
+## Verification still required
 
-**Verified code:** private bounded async writer, shared writer ownership manager, redacted Publish persistence, persistence with zero subscribers, slow-subscriber preflight, and concurrent producer persistence test. Verified code commit: `ef0af7645e366591e5f3b50d7371055500459c9a`; CI run `45004383109` passed Linux and Windows for formatting, race tests/coverage, vet, build, and coverage artifact upload. Both platforms reported 82.4% aggregate statement coverage; per-file/function coverage matched.
-
-**Not yet implemented/verified:** ErrorStream creation and terminal failure routing; removal of `Get()` and map-based stream registry; queue saturation/backpressure stress; per-channel close while other owners remain; final-owner shutdown stress; injected storage failures.
-
-## Acceptance criteria for the next code milestone
-
-- Implement channel-owned ErrorStream and typed `Errors(bufferSize)` access boundary.
-- Route terminal writer failures to affected channel owners once; bypass persistence and preserve causes.
-- Test injected terminal failure, owner deduplication, reserved error capacity, and subsequent Publish behavior.
-- Remove `Get()` and the stream registry in line with steering; retain correct Close/subscriber lifecycle without adding a replacement lookup registry.
-- Add queue saturation/backpressure and writer/channel lifecycle stress coverage.
-- Run exact-SHA Linux and Windows CI. Compare aggregate and per-function coverage from the same run; do not claim verification without it.
+- Inject append and flush failures and prove first-cause preservation, owner fan-out/deduplication, queue drain, and blocked-producer wake-up.
+- Prove ErrorStream cause propagation, one-notification semantics, reserved capacity, lazy creation after failure, and close ordering.
+- Stress bounded-queue saturation/backpressure, concurrent producers, channel Close while other owners remain, and final-owner shutdown.
+- Run exact-commit Linux and Windows CI for formatting, race-enabled tests/coverage, vet, build, and artifact upload.
+- Compare aggregate statement and per-function coverage from the same CI run; inspect platform differences rather than attempting to equalize coverage.
 
 ## Non-goals
 
