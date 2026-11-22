@@ -5,7 +5,6 @@ import (
 	"sync"
 )
 
-
 type EventChannel[TStream any] struct {
 	mu      sync.RWMutex
 	streams map[reflect.Type]any
