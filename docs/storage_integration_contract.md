@@ -103,3 +103,8 @@ No public storage configuration/API, automatic recovery migration, cross-process
 - Exact source SHA `a0ba628ba37d414f05642a6ce2001b5083ef8e94` passed Linux and Windows CI run `45004091710`: formatting, race-enabled tests/coverage, vet, build. Coverage profiles have not yet been compared for this run.
 
 **Remaining:** ErrorStream API/ownership/failure fan-out; remove map registry and `Get()` per steering; stress tests for queue backpressure, concurrent producers and failure routing. Disk replay stays deferred.
+
+
+## Concurrent Publish test checkpoint (CI pending)
+
+Added `TestConcurrentPublishPersistsAllAcceptedEvents` in `storage_publish_test.go`: 64 concurrent publishers, no subscribers, all successful calls expected to be persisted exactly once; the test scans records filtered by type-derived identities and verifies uniqueness and count. This specifically exercises serialized queue admission and writer draining under producer concurrency. Exact-SHA CI is pending for commit `6e0724e79cc9c54a7d23df3f098e6d9533a276bb`; do not treat this test as verified until CI completes.
