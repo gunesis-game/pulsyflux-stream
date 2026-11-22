@@ -93,3 +93,13 @@ No public storage configuration/API, automatic recovery migration, cross-process
 - Exact code SHA `9f3c9d571149cc1b110436bfed90b599fe7bad45` passed Linux and Windows formatting, race tests/coverage, vet, and build. Coverage profiles from that run matched byte-for-byte at **82.8%** total statement coverage on both platforms.
 
 **Still pending:** live Publish persistence, error stream creation and failure routing, queue backpressure integration, and removal of the stream registry/Get API in line with steering. No persisted event records are currently written by public Publish.
+
+
+## Publish persistence checkpoint
+
+- Public `Stream.Publish` now uses the private async writer: state validation and subscriber preflight, redacted payload preparation, bounded queue admission with type-derived channel/stream identity and event timestamp, then live delivery of the original event.
+- Persistence is attempted even with no subscribers. Slow-subscriber rejection happens before enqueue, so the rejected event is not persisted.
+- `storage_publish_test.go` covers redacted persistence without subscribers and no persistence for slow-subscriber rejection.
+- Exact source SHA `a0ba628ba37d414f05642a6ce2001b5083ef8e94` passed Linux and Windows CI run `45004091710`: formatting, race-enabled tests/coverage, vet, build. Coverage profiles have not yet been compared for this run.
+
+**Remaining:** ErrorStream API/ownership/failure fan-out; remove map registry and `Get()` per steering; stress tests for queue backpressure, concurrent producers and failure routing. Disk replay stays deferred.
