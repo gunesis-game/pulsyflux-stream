@@ -34,6 +34,7 @@ type asyncDiskWriter struct {
 	closeErr error
 	batchSize int
 	flushEvery time.Duration
+	flushDue bool
 }
 
 func newAsyncDiskWriter(disk *diskWriter, queueSize, batchSize int, flushEvery time.Duration) (*asyncDiskWriter, error) {
@@ -81,6 +82,7 @@ func (w *asyncDiskWriter) run() {
 			select {
 			case <-ticker.C:
 				w.mu.Lock()
+				w.flushDue = true
 				w.cond.Broadcast()
 				w.mu.Unlock()
 			case <-w.done:
@@ -92,7 +94,7 @@ func (w *asyncDiskWriter) run() {
 	batchOwners := make(map[asyncWriterOwner]struct{})
 	for {
 		w.mu.Lock()
-		for len(w.queue) == 0 && !w.closed && w.failure == nil {
+		for len(w.queue) == 0 && !w.closed && w.failure == nil && !w.flushDue {
 			w.cond.Wait()
 		}
 		if w.failure != nil {
@@ -101,7 +103,13 @@ func (w *asyncDiskWriter) run() {
 			close(w.done)
 			return
 		}
-		if len(w.queue) == 0 && batchCount > 0 && !w.closed {
+		if len(w.queue) == 0 && w.flushDue && !w.closed {
+			w.flushDue = false
+			if batchCount == 0 {
+				w.mu.Unlock()
+				continue
+			}
+			
 			w.mu.Unlock()
 			if err := w.disk.Flush(); err != nil {
 				w.fail(err, batchOwners)
