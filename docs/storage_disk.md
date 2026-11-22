@@ -398,3 +398,13 @@ A reliable, supported, tested directory-entry sync implementation is not current
 - **Provisioning boundary:** the caller remains responsible for durably provisioning the storage directory hierarchy. This does not remove the need to persist segment entries created by the writer; that is why strict per-append mode remains unavailable.
 
 The former platform-specific directory-sync helpers have been removed rather than retaining an unverified Linux-only durability path. Reintroduce strict mode only when both Linux and Windows have documented, reliable implementations and focused tests that prove the required ordering and fail-closed behavior. CI runs formatting, race-enabled tests, coverage reporting, vet, and build on both operating systems.
+
+
+## 13. Planned identity-format transition (decision)
+
+The next identity refactor will introduce **record version 3**. Version 3 will replace UUID-based channel/stream routing identities and schema fingerprints with canonical type-derived channel and stream identity strings. It will retain the event UUID, sequence, creation timestamp, and redacted payload.
+
+
+Compatibility is explicit: **version 3 readers and writers reject version 2 and earlier records; no migration or mixed-version segment support is planned.** This is a breaking persisted-data change. Applications must archive or remove old storage directories before adopting version 3; old data is not reinterpreted. The existing version-2 implementation remains active until the coordinated code, tests, and docs update lands.
+
+The version-3 field shape and type-identity encoding must be finalized in code and tests together. Named types should use package-qualified identities where available; unnamed type identities are only structural and must not be advertised as cross-version stable unless the representation is deliberately specified.
