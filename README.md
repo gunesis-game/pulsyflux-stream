@@ -1,3 +1,5 @@
+> **Pre-production notice:** This Go project is not live, not released, and not in production. Its API and disk format are still under active development; breaking changes are acceptable. Do not infer stability or release status from internal disk-format revision numbers.
+
 # pulsyflux-stream
 
 A small, typed, concurrency-safe event stream for Go.
@@ -93,7 +95,7 @@ Supported policy path traversal is limited to structs, pointers, and slices/arra
 
 ### Private persistence internals
 
-The private disk writer stores version-3 records with type-derived channel and stream identities, event UUID, sequence, event-creation timestamp, and redacted payload. Version-2 and older records are rejected; there is no migration support or public persistence/replay API.
+The private disk writer currently stores event records using internal format revision 3, with type-derived channel and stream identities, event UUID, sequence, event-creation timestamp, and redacted payload. This is an unreleased development format, not a stable or production format. The private storage implementation is not public API.
 
 See [disk storage architecture](docs/storage_disk.md) and [type-derived identity](docs/type_identity.md) for implementation details. The [private persistence integration contract](docs/storage_integration_contract.md) is a design draft, not implemented behavior.
 
