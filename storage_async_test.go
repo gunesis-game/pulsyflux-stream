@@ -84,9 +84,9 @@ func TestAsyncDiskWriterCloseIsIdempotent(t *testing.T) {
 	}
 	if err := writer.Submit(asyncWriterItem{
 		channelIdentity: "channel",
-		streamIdentity: "stream",
-		timestamp: time.Now(),
-		payload: []byte("1"),
+		streamIdentity:  "stream",
+		timestamp:       time.Now(),
+		payload:         []byte("1"),
 	}); err != ErrClosed {
 		t.Errorf("Submit after Close error = %v, want ErrClosed", err)
 	}
