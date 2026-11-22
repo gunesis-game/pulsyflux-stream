@@ -22,7 +22,7 @@ This is the high-level relationship between the types and the filesystem. The ca
 
 ```mermaid
 flowchart TB
-    Caller["Private package caller"] -->|"Append(channelID, streamID, schemas, time, payload)"| Writer["diskWriter"]
+    Caller["Private package caller"] -->|"Append(channelIdentity, streamIdentity, time, payload)"| Writer["diskWriter"]
     Caller -->|"openDiskReader(dir)"| Reader["diskReader"]
 
     subgraph Codec["Record codec"]
@@ -65,7 +65,7 @@ flowchart TB
 
 | Component | Responsibility | Important property |
 |---|---|---|
-| `diskRecord` | In-memory representation of one persisted event | Contains private identity and schema metadata |
+| `diskRecord` | In-memory representation of one persisted event | Contains event UUID plus type-derived channel and stream identities |
 | `encodeDiskRecord` | Validate fields and create a frame | Rejects missing required fields, unsupported version, and oversized body |
 | `decodeDiskRecord` | Validate and decode one complete frame | Checks magic, length, checksum, JSON, version, and required fields |
 | `diskSegments` | Discover and order segment paths | Rejects malformed `.pfs` names and numbering gaps; retains O(segment count) path metadata |
@@ -99,13 +99,13 @@ flowchart LR
 
 **Limits and validation**
 
-- `recordVersion` is currently `2`. Version 1 records are intentionally rejected; this schema change is not an in-place reinterpretation or migration.
+- `recordVersion` is currently `3`. Version 2 and earlier records are intentionally rejected; this schema change is not an in-place reinterpretation or migration.
 - `maxRecordBytes` is 64 MiB and applies to the final encoded JSON body, after `json.RawMessage` whitespace compaction and HTML escaping.
 - The encoder preflights the exact JSON body size before marshaling the caller-provided payload. It validates the raw JSON and counts compaction/escaping without allocating an intermediate encoded payload; oversized bodies are rejected before the full JSON body or frame is allocated.
 - The preflight preserves Go `encoding/json` encoding semantics, including field order, string escaping, `RawMessage` compaction, and HTML escaping. The stored frame format and checksum are unchanged.
 - The decoder requires the frame length to match the declared body length exactly.
 - A complete frame with bad magic, invalid length, checksum mismatch, invalid JSON, unsupported version, or missing required fields is rejected.
-- Required record fields are version, event ID, stream ID, channel ID, sequence, timestamp, the six schema fingerprints (event/stream/channel base and effective), and payload.
+- Required record fields are version, event ID, channel identity, stream identity, sequence, timestamp, and payload.
 - The payload is a `json.RawMessage`, so it is embedded as JSON rather than quoted as a string.
 
 ### Record data and identity boundaries
@@ -113,13 +113,13 @@ flowchart LR
 `diskRecord` persists:
 
 - **Event identity:** `EventID`
-- **Routing / ownership identity:** `StreamID` and `ChannelID`
+- **Routing / ownership identity:** `ChannelIdentity` and `StreamIdentity` (type-derived strings)
 - **Ordering:** `Sequence`
 - **Metadata:** `Timestamp`
-- **Schema metadata:** `EventBaseFingerprint`, `EventEffectiveFingerprint`, `StreamBaseFingerprint`, `StreamEffectiveFingerprint`, `ChannelBaseFingerprint`, and `ChannelEffectiveFingerprint`
+- **Type metadata:** `ChannelIdentity` and `StreamIdentity`
 - **Event content:** `Payload`
 
-These are storage fields, not a promise that private UUIDs or schema fingerprints are exposed through a public API. The storage layer preserves the identity metadata it is given. Redaction must happen before the payload reaches this layer; the writer itself does not redact event data.
+These are private storage fields, not a promise that identities are exposed through a public API. The writer preserves the identity strings it is given. Redaction must happen before the payload reaches this layer; the writer itself does not redact event data.
 
 ## 4. Segment layout and ordering
 
@@ -227,7 +227,7 @@ flowchart TD
 
 - Sequence numbers are authoritative ordering. Timestamps are metadata, not an ordering source.
 - The writer generates a new event UUID for each append.
-- The writer copies the payload bytes into the record before encoding. The caller supplies six non-empty fingerprints: base/effective identities for Event, Stream, and Channel.
+- The writer copies the payload bytes into the record before encoding. The caller supplies non-empty channel and stream type-identity strings.
 - Rotation happens only when the current segment is non-empty and the next frame would exceed `maxBytes`.
 - Therefore, a single frame larger than the configured segment threshold can occupy an otherwise-empty segment. The record-body limit still applies.
 - The configured default segment threshold is 64 MiB when `MaxSegmentBytes` is not positive.
@@ -400,11 +400,11 @@ A reliable, supported, tested directory-entry sync implementation is not current
 The former platform-specific directory-sync helpers have been removed rather than retaining an unverified Linux-only durability path. Reintroduce strict mode only when both Linux and Windows have documented, reliable implementations and focused tests that prove the required ordering and fail-closed behavior. CI runs formatting, race-enabled tests, coverage reporting, vet, and build on both operating systems.
 
 
-## 13. Planned identity-format transition (decision)
+## 13. Version-3 identity format
 
-The next identity refactor will introduce **record version 3**. Version 3 will replace UUID-based channel/stream routing identities and schema fingerprints with canonical type-derived channel and stream identity strings. It will retain the event UUID, sequence, creation timestamp, and redacted payload.
+Record version 3 is implemented. It replaces UUID-based channel/stream routing identities and schema fingerprints with canonical type-derived channel and stream identity strings. It retains the event UUID, sequence, creation timestamp, and payload.
 
 
-Compatibility is explicit: **version 3 readers and writers reject version 2 and earlier records; no migration or mixed-version segment support is planned.** This is a breaking persisted-data change. Applications must archive or remove old storage directories before adopting version 3; old data is not reinterpreted. The existing version-2 implementation remains active until the coordinated code, tests, and docs update lands.
+Compatibility is explicit: **version 3 readers and writers reject version 2 and earlier records; no migration or mixed-version segment support is planned.** This is a breaking persisted-data change. Applications must archive or remove old storage directories before adopting version 3; old data is not reinterpreted. The version-3 implementation is now active.
 
-The version-3 field shape and type-identity encoding must be finalized in code and tests together. Named types should use package-qualified identities where available; unnamed type identities are only structural and must not be advertised as cross-version stable unless the representation is deliberately specified.
+Named types use package-qualified identities where available; unnamed type identities use Go's structural `reflect.Type.String()` fallback and are not guaranteed stable across code changes. Channel and stream identity strings are composed by the helpers in `type_identity.go`.
