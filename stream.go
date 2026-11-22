@@ -134,12 +134,15 @@ func nilContext(ctx context.Context) bool {
 // during construction and are internal to Event. With no subscribers, Publish
 // succeeds.
 func (s *Stream[TStream, TEvent]) Publish(event Event[TEvent]) error {
-	// Serialize publishers: the buffer preflight and sends must be one
-	// critical section, otherwise concurrent publishers can overfill a
-	// subscriber channel after both observe spare capacity.
+	channel := s.channel
+	if channel == nil {
+		return ErrNilEventChannel
+	}
+	// Serialize with channel Close so admission and delivery cannot be split.
+	channel.publishMu.Lock()
+	defer channel.publishMu.Unlock()
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
 	if s.closed {
 		return ErrClosed
 	}
@@ -149,14 +152,41 @@ func (s *Stream[TStream, TEvent]) Publish(event Event[TEvent]) error {
 	if !event.dataSet {
 		return ErrUnsetEventData
 	}
-
-	// Preflight every buffer before sending so a slow subscriber never causes
-	// partial delivery. Only Publish writes to these channels.
+	// Preflight before queue admission: no persist-only publish on slow subscriber.
 	for _, sub := range s.subs {
 		if len(sub.ch) == cap(sub.ch) {
 			return ErrSlowSubscriber
 		}
 	}
+	channel.mu.RLock()
+	if channel.closed {
+		channel.mu.RUnlock()
+		return ErrClosed
+	}
+	if channel.storageFailure != nil {
+		failure := channel.storageFailure
+		channel.mu.RUnlock()
+		return fmt.Errorf("stream: asynchronous storage failed: %w", failure)
+	}
+	writer := channel.writer
+	channel.mu.RUnlock()
+	if writer == nil {
+		return errors.New("stream: private storage writer unavailable")
+	}
+	payload, err := encodeEventPayload(event.data, event.redactionPolicy)
+	if err != nil {
+		return fmt.Errorf("stream: prepare persisted event payload: %w", err)
+	}
+	if err := writer.Submit(asyncWriterItem{
+		owner: channel,
+		channelIdentity: channelTypeIdentity[TStream](),
+		streamIdentity: streamTypeIdentity[TStream, TEvent](),
+		timestamp: event.time,
+		payload: payload,
+	}); err != nil {
+		return fmt.Errorf("stream: enqueue persisted event: %w", err)
+	}
+	// Deliver original unredacted event only after bounded queue admission.
 	for _, sub := range s.subs {
 		sub.ch <- event
 	}
