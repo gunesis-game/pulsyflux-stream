@@ -15,10 +15,10 @@ Named type identities distinguish same-named types from different packages. The 
 
 ## Channel and stream labels
 
-- `EventChannel[TStream]`: `EventChannel[` + `typeIdentity[TStream]()` + `]`
-- `Stream[TStream,TEvent]`: `Stream[` + `typeIdentity[TStream]()` + `,` + `typeIdentity[TEvent]()` + `]`
+- `EventChannel[TStream]`: `EventChannel[<TStream identity>]`
+- `Stream[TStream,TEvent]`: `Stream[<TStream identity>,<TEvent identity>]`
 
-The helpers in `type_identity.go` are private and tested directly. A channel or stream instance does not generate UUIDs or own a global identity catalog.
+These placeholders are illustrative; actual strings are produced by the helpers in `type_identity.go`. The helpers are private and tested directly. A channel or stream instance does not generate UUIDs or own a global identity catalog.
 
 ## Persistence boundary
 
