@@ -88,7 +88,7 @@ This steering file is an operating instruction for AI agents working in this rep
 8. **Commit/push:** Follow repository branch rules and commit finished coherent work. Do not commit unfinished, knowingly broken changes. Unless project instructions or user requests say otherwise, work on the designated branch (here: `main`).
 9. **CI verification:** For every code commit, identify the workflow run for that exact commit SHA, wait for completion, and inspect jobs/results/logs. If it fails, diagnose and repair. Never infer verification from another SHA or from partial results.
 10. **Coverage/reporting:** Where CI provides coverage, compare required platform reports and inspect meaningful gaps; do not game coverage with artificial tests.
-11. **Steering handoff:** After a verified milestone, update this file in a separate documentation-only commit with the real checkpoint (current HEAD, code SHA, exact CI run, checks, coverage, risks, and next concrete task/acceptance criteria). Keep handoff concise and current; remove stale instructions.
+11. **Steering handoff:** After a verified milestone, update this file in a separate documentation-only commit with a human-readable checkpoint: milestone, changes, verification summary, coverage comparison if relevant, risks, and next concrete task/acceptance criteria. **Never include commit hashes, SHA values, Git object IDs, CI run IDs, or other machine-specific identifiers in this file.** Retrieve those from GitHub when needed. Keep handoff concise and current; remove stale instructions.
 12. **Continue intelligently:** When the user says "continue" or requests ongoing progress, proceed to the next actionable milestone after finishing the current one, repeating this lifecycle. Do not stop after merely updating the handoff or reporting what could be done next.
 
 ### When to stop or ask
@@ -110,23 +110,21 @@ Be concise and action-oriented. Give a short update when useful, then do the wor
 - CI formatting must be non-mutating and report offending files.
 - Verify formatting, `go test -race -coverprofile=coverage.out ./...`, `go vet ./...`, and `go build ./...` through exact-SHA CI before claiming verified. No local Go execution is claimed unless actually run.
 - Do not trigger manually controlled release CI unless explicitly asked.
-- After CI analysis, update this file in a separate docs-only commit, including the checkpoint and next task. Markdown-only changes are not CI-tested.
+- After CI analysis, update this file in a separate docs-only commit, including the human-readable checkpoint and next task. Never put commit hashes, SHA values, Git object IDs, or CI run IDs in steering.md; look them up from GitHub when needed. Markdown-only changes are not CI-tested.
 - Keep verified facts separate from assumptions and open decisions. Do not claim unverified work is tested or pushed.
 
 ## Handoff hygiene
 - This file is the durable source of truth, not a chat transcript. Maintain one concise current handoff in place.
 - Once a handoff is resolved, remove it. Move lasting workflow rules here and substantial technical design into canonical `docs/` files; do not preserve history in this file.
-- Handoff must record repo/branch, exact HEAD, code SHA and CI run, verification/coverage comparison, changes, risks/open decisions, next task and acceptance criteria, and whether `docs/storage_disk.md` matches implementation.
+- Handoff records repo/branch, milestone/checkpoint, verification and coverage comparison, changes, risks/open decisions, next task and acceptance criteria, and whether `docs/storage_disk.md` matches implementation. Do not include any commit SHA/hash or CI run identifier.
 - If interrupted, state exact stopping point and uncommitted/unpushed state. Never present unverified work as done.
 
 ## Current handoff (2026-11-22)
 
-- Repo: `gunesis-game/pulsyflux-stream`, branch `main`.
-- Latest main HEAD: `70f6737b31e218636ed72abb6d4991aacc7b0e9e` (`docs: document owned ErrorStream access boundary`). This follows `5ab21d8832174191a59141380baf28c7635642bb`, which clarifies the owned error-stream access boundary.
-- Latest verified code commit remains `ef0af7645e366591e5f3b50d7371055500459c9a`. Its exact-SHA CI run `45004383109` passed on Linux and Windows: formatting, race tests/coverage, vet, build, and artifact upload.
-- Coverage comparison from that exact CI: Linux and Windows both **82.4% aggregate statement coverage**; per-file/function coverage reports match. Raw profiles differ only in hit counts.
-- Documentation-only updates after the verified code commit: `02cc2f3f04df3669ce94184156917e8271a39e59` (README), `2614f61b12695336991f1536b6f1dde4fcecbd48` (storage integration contract), `5ab21d8832174191a59141380baf28c7635642bb`, and `70f6737b31e218636ed72abb6d4991aacc7b0e9e` (ErrorStream API boundary). CI is configured to ignore Markdown-only pushes, so these docs commits are not CI-tested.
-- Implemented code: private async bounded writer, process-wide shared writer with active-owner count, channel writer ownership, redacted persisted Publish, zero-subscriber persistence, slow-subscriber preflight, and concurrent-producer persistence test.
-- Remaining code milestone: implement ErrorStream terminal failure routing with reserved system-error capacity, then remove `Get()` and the stream registry in a coherent lifecycle change. Current `storageWriteFailed` only retains the first terminal cause. Removing the registry must preserve prompt subscription closure on EventChannel.Close; avoid replacing it with another channel/stream lookup registry.
-- Next task: implement ErrorStream as a channel-owned internal system stream exposed only through `Errors(bufferSize)`; route terminal writer failure to affected EventChannel owners once, bypass persistence, preserve cause for `errors.Is/As`, and test terminal injected failures. Then remove `Get()` and map registry, using channel close signaling to shut subscriptions down without a registry. Run exact-SHA CI and compare coverage.
+- Repository: `gunesis-game/pulsyflux-stream`, branch `main`.
+- Current checkpoint: documentation clarifies README, storage integration contract, and the owned ErrorStream API boundary. These documentation-only updates are not CI-tested.
+- Latest verified code milestone: private async bounded writer, process-wide shared writer with active-owner count, channel writer ownership, redacted persisted Publish, zero-subscriber persistence, slow-subscriber preflight, and concurrent-producer persistence test.
+- Verification at the latest code milestone: Linux and Windows CI passed formatting, race-enabled tests/coverage, vet, build, and artifact upload. Aggregate statement coverage was 82.4% on both platforms; per-file/function reports matched.
+- Remaining milestone: implement ErrorStream terminal failure routing with reserved system-error capacity, then remove `Get()` and the stream registry in a coherent lifecycle change. Preserve prompt subscription closure on EventChannel.Close without adding a replacement lookup registry.
+- Next task: implement ErrorStream as a channel-owned internal system stream exposed only through `Errors(bufferSize)`; route terminal writer failure to affected EventChannel owners once, bypass persistence, preserve cause for `errors.Is/As`, and test terminal injected failures. Then remove `Get()` and the map registry using channel close signaling. Run CI and compare coverage.
 - No release/version bump; replay remains deferred. Review `docs/storage_disk.md` against implementation during the code milestone.
