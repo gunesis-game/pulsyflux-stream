@@ -8,6 +8,16 @@ import (
 	"time"
 )
 
+func mustNewEventChannel[T any](t *testing.T) *EventChannel[T] {
+	t.Helper()
+	channel, err := NewEventChannel[T]()
+	if err != nil {
+		t.Fatalf("NewEventChannel: %v", err)
+	}
+	t.Cleanup(func() { _ = channel.Close() })
+	return channel
+}
+
 func newTestEvent[T any](t *testing.T, data T) Event[T] {
 	t.Helper()
 	event, err := NewEvent[T](NewRedactionPolicy())
@@ -24,7 +34,7 @@ type testStreamContext struct{}
 
 func newTestStream[T any](t *testing.T, bufferSize int) *Stream[testStreamContext, T] {
 	t.Helper()
-	channel := NewEventChannel[testStreamContext]()
+	channel := mustNewEventChannel[testStreamContext](t)
 	s, err := New[testStreamContext, T](channel, bufferSize)
 	if err != nil {
 		t.Fatal(err)
@@ -38,7 +48,7 @@ func TestEventChannelRegistersTypedStreams(t *testing.T) {
 	type secondEvent struct{ Value int }
 	type thirdEvent struct{ Value bool }
 
-	channel := NewEventChannel[testStreamContext]()
+	channel := mustNewEventChannel[testStreamContext](t)
 	defer channel.Close()
 
 	first, err := New[testStreamContext, firstEvent](channel, 7)
@@ -76,8 +86,8 @@ func TestEventChannelRegistersTypedStreams(t *testing.T) {
 func TestEventChannelsAreIsolated(t *testing.T) {
 	type isolatedEvent struct{ Value string }
 
-	firstChannel := NewEventChannel[testStreamContext]()
-	secondChannel := NewEventChannel[testStreamContext]()
+	firstChannel := mustNewEventChannel[testStreamContext](t)
+	secondChannel := mustNewEventChannel[testStreamContext](t)
 	defer firstChannel.Close()
 	defer secondChannel.Close()
 
@@ -122,7 +132,7 @@ func TestEventChannelsAreIsolated(t *testing.T) {
 
 func TestDuplicateStreamRegistrationReturnsError(t *testing.T) {
 	type duplicateEvent struct{}
-	channel := NewEventChannel[testStreamContext]()
+	channel := mustNewEventChannel[testStreamContext](t)
 	defer channel.Close()
 
 	if _, err := New[testStreamContext, duplicateEvent](channel, 1); err != nil {
@@ -137,7 +147,7 @@ func TestNewValidatesChannelAndBuffer(t *testing.T) {
 	if _, err := New[testStreamContext, int](nil, 1); !errors.Is(err, ErrNilEventChannel) {
 		t.Fatalf("got %v, want ErrNilEventChannel", err)
 	}
-	channel := NewEventChannel[testStreamContext]()
+	channel := mustNewEventChannel[testStreamContext](t)
 	defer channel.Close()
 	if _, err := New[testStreamContext, int](channel, 0); !errors.Is(err, ErrInvalidBufferSize) {
 		t.Fatalf("got %v, want ErrInvalidBufferSize", err)
@@ -146,7 +156,7 @@ func TestNewValidatesChannelAndBuffer(t *testing.T) {
 
 func TestGetReturnsNilBeforeNew(t *testing.T) {
 	type neverCreatedEvent struct{}
-	channel := NewEventChannel[testStreamContext]()
+	channel := mustNewEventChannel[testStreamContext](t)
 	defer channel.Close()
 
 	if got := Get[testStreamContext, neverCreatedEvent](channel); got != nil {
@@ -158,7 +168,7 @@ func TestGetReturnsNilBeforeNew(t *testing.T) {
 }
 
 func TestEventChannelCloseClosesOwnedStreams(t *testing.T) {
-	channel := NewEventChannel[testStreamContext]()
+	channel := mustNewEventChannel[testStreamContext](t)
 	first, err := New[testStreamContext, int](channel, 1)
 	if err != nil {
 		t.Fatal(err)
