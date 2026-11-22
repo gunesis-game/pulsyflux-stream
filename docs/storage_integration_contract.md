@@ -37,9 +37,9 @@ No asynchronous queue is proposed. A synchronous sink can delay Publish while I/
 
 ## Ownership/lifecycle proposal
 
-- The persistence sink is attached to an individual typed Stream, not the EventChannel. This avoids ambiguity when one channel family owns multiple event types and their different payload/redaction rules.
-- The sink is injected internally at stream construction; the public `New` signature stays unchanged until a separate API design is approved.
-- Stream.Close does not implicitly close a shared writer unless exclusive ownership is explicit. Writer lifetime is managed by a private storage owner; Close/Flush/Sync errors must be surfaced, not discarded.
+- Disk storage is created/opened and owned entirely inside the library. It is never passed in, returned, configured, or otherwise exposed through the public API. No public store type, interface, constructor, option, parameter, or handle is permitted.
+- Channel construction is the public lifecycle boundary: it loads the channel's persisted record if present, otherwise creates it. Loading is the lookup; there is no separate `Get()` API and no in-memory stream registry/cache.
+- The channel/stream layer uses private storage operations internally. The precise private writer-sharing and shutdown ownership must be settled with the implementation; do not introduce public dependency injection to solve it.
 - Avoid multiple writers for the same directory. Multi-process locking is out of scope; storage remains single-process and single-writer.
 
 ## Replay proposal
@@ -65,7 +65,7 @@ These are the design recommendations to implement only after approval of storage
 
 - [ ] Confirm the recommended persist-before-deliver ordering and append failure behavior.
 - [ ] Confirm synchronous backpressure and no queue.
-- [ ] Define private writer owner, sharing, flush/sync, and shutdown behavior.
+- [ ] Define private writer owner, sharing, flush/sync, and shutdown behavior, including the library's private storage-root policy. Never expose the store or its location/configuration as public API.
 - [ ] Decide whether replay is included in the first integration or deferred.
 - [ ] Add tests for ordering under concurrent publishers, slow subscribers (no orphan persisted record), storage failure (no live delivery), redaction, no subscribers, Close, and replay non-reappend.
 
