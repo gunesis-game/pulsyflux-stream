@@ -4,6 +4,8 @@ import (
 	"errors"
 	"sync"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // asyncWriterOwner is implemented by the EventChannel that admitted a record.
@@ -20,9 +22,15 @@ type asyncWriterItem struct {
 	payload         []byte
 }
 
+type asyncDisk interface {
+	Append(channelIdentity, streamIdentity string, at time.Time, payload []byte) (uint64, uuid.UUID, error)
+	Flush() error
+	Close() error
+}
+
 // asyncDiskWriter serializes disk I/O behind a bounded private queue.
 type asyncDiskWriter struct {
-	disk       *diskWriter
+	disk       asyncDisk
 	mu         sync.Mutex
 	cond       *sync.Cond
 	queue      []asyncWriterItem
@@ -37,7 +45,7 @@ type asyncDiskWriter struct {
 	flushDue   bool
 }
 
-func newAsyncDiskWriter(disk *diskWriter, queueSize, batchSize int, flushEvery time.Duration) (*asyncDiskWriter, error) {
+func newAsyncDiskWriter(disk asyncDisk, queueSize, batchSize int, flushEvery time.Duration) (*asyncDiskWriter, error) {
 	if disk == nil {
 		return nil, errors.New("stream: nil disk writer")
 	}

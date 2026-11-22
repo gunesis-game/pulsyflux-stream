@@ -7,7 +7,46 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
 )
+
+type asyncDiskTestDouble struct {
+	appendStarted chan struct{}
+	appendGate    chan struct{}
+	appendErr     error
+	flushErr      error
+	startedOnce   sync.Once
+	mu            sync.Mutex
+	appendCount   int
+}
+
+func (disk *asyncDiskTestDouble) Append(_, _ string, _ time.Time, _ []byte) (uint64, uuid.UUID, error) {
+	if disk.appendStarted != nil {
+		disk.startedOnce.Do(func() { close(disk.appendStarted) })
+	}
+	if disk.appendGate != nil {
+		<-disk.appendGate
+	}
+	disk.mu.Lock()
+	disk.appendCount++
+	disk.mu.Unlock()
+	return 0, uuid.Nil, disk.appendErr
+}
+
+func (disk *asyncDiskTestDouble) Flush() error {
+	return disk.flushErr
+}
+
+func (disk *asyncDiskTestDouble) Close() error {
+	return nil
+}
+
+func (disk *asyncDiskTestDouble) count() int {
+	disk.mu.Lock()
+	defer disk.mu.Unlock()
+	return disk.appendCount
+}
 
 func TestAsyncDiskWriterDrainsAcceptedItemsInOrder(t *testing.T) {
 	dir := t.TempDir()
@@ -147,6 +186,135 @@ func TestAsyncDiskWriterCopiesPayloadAtAdmission(t *testing.T) {
 	}
 	if string(record.Payload) != `{"value":"before"}` {
 		t.Fatalf("payload = %s, want original admitted bytes", record.Payload)
+	}
+}
+
+func TestAsyncDiskWriterBackpressureWaitsForQueueCapacity(t *testing.T) {
+	disk := &asyncDiskTestDouble{
+		appendStarted: make(chan struct{}),
+		appendGate:    make(chan struct{}),
+	}
+	writer, err := newAsyncDiskWriter(disk, 1, 32, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Submit(asyncWriterItem{timestamp: time.Now(), payload: []byte("first")}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-disk.appendStarted:
+	case <-time.After(time.Second):
+		t.Fatal("worker did not begin first append")
+	}
+	if err := writer.Submit(asyncWriterItem{timestamp: time.Now(), payload: []byte("second")}); err != nil {
+		t.Fatal(err)
+	}
+	third := make(chan error, 1)
+	go func() { third <- writer.Submit(asyncWriterItem{timestamp: time.Now(), payload: []byte("third")}) }()
+	select {
+	case err := <-third:
+		t.Fatalf("Submit returned while queue was full: %v", err)
+	case <-time.After(25 * time.Millisecond):
+	}
+	close(disk.appendGate)
+	select {
+	case err := <-third:
+		if err != nil {
+			t.Fatalf("blocked Submit: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("blocked Submit did not resume after queue capacity became available")
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if got := disk.count(); got != 3 {
+		t.Fatalf("append count = %d, want 3", got)
+	}
+}
+
+func TestAsyncDiskWriterAppendFailureWakesBlockedSubmittersAndNotifiesOwners(t *testing.T) {
+	cause := errors.New("injected append failure")
+	disk := &asyncDiskTestDouble{
+		appendStarted: make(chan struct{}),
+		appendGate:    make(chan struct{}),
+		appendErr:     cause,
+	}
+	writer, err := newAsyncDiskWriter(disk, 1, 32, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownerA, ownerB, ownerC := &asyncWriterTestOwner{}, &asyncWriterTestOwner{}, &asyncWriterTestOwner{}
+	if err := writer.Submit(asyncWriterItem{owner: ownerA, timestamp: time.Now(), payload: []byte("first")}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-disk.appendStarted:
+	case <-time.After(time.Second):
+		t.Fatal("worker did not begin append")
+	}
+	if err := writer.Submit(asyncWriterItem{owner: ownerB, timestamp: time.Now(), payload: []byte("queued")}); err != nil {
+		t.Fatal(err)
+	}
+	blocked := make(chan error, 1)
+	go func() { blocked <- writer.Submit(asyncWriterItem{owner: ownerC, timestamp: time.Now(), payload: []byte("blocked")}) }()
+	select {
+	case err := <-blocked:
+		t.Fatalf("blocked producer returned before failure: %v", err)
+	case <-time.After(25 * time.Millisecond):
+	}
+	close(disk.appendGate)
+	select {
+	case err := <-blocked:
+		if !errors.Is(err, cause) {
+			t.Fatalf("blocked Submit error = %v, want injected cause", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("blocked producer was not woken by terminal failure")
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if ownerA.failureCount() != 1 || ownerB.failureCount() != 1 {
+		t.Fatalf("accepted owner notifications = A:%d B:%d, want 1 each", ownerA.failureCount(), ownerB.failureCount())
+	}
+	if ownerC.failureCount() != 0 {
+		t.Fatalf("unadmitted owner received %d notifications, want 0", ownerC.failureCount())
+	}
+}
+
+func TestAsyncDiskWriterFlushFailureNotifiesBatchAndQueuedOwners(t *testing.T) {
+	cause := errors.New("injected flush failure")
+	disk := &asyncDiskTestDouble{
+		appendStarted: make(chan struct{}),
+		appendGate:    make(chan struct{}),
+		flushErr:      cause,
+	}
+	writer, err := newAsyncDiskWriter(disk, 2, 1, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownerA, ownerB := &asyncWriterTestOwner{}, &asyncWriterTestOwner{}
+	if err := writer.Submit(asyncWriterItem{owner: ownerA, timestamp: time.Now(), payload: []byte("batch")}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-disk.appendStarted:
+	case <-time.After(time.Second):
+		t.Fatal("worker did not begin append")
+	}
+	if err := writer.Submit(asyncWriterItem{owner: ownerB, timestamp: time.Now(), payload: []byte("queued")}); err != nil {
+		t.Fatal(err)
+	}
+	close(disk.appendGate)
+	if err := writer.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if !errors.Is(writer.failure, cause) {
+		t.Fatalf("writer failure = %v, want flush cause", writer.failure)
+	}
+	if ownerA.failureCount() != 1 || ownerB.failureCount() != 1 {
+		t.Fatalf("owner notifications = A:%d B:%d, want 1 each", ownerA.failureCount(), ownerB.failureCount())
 	}
 }
 
