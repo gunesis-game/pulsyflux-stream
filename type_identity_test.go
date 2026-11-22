@@ -1,6 +1,9 @@
 package stream
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 type identityTestStream struct{}
 type identityTestEvent struct{}
