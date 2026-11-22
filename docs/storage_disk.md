@@ -410,3 +410,18 @@ Record version 3 is implemented. It replaces UUID-based channel/stream routing i
 Compatibility is explicit: **version 3 readers and writers reject version 2 and earlier records; no migration or mixed-version segment support is planned.** This is a breaking persisted-data change. Applications must archive or remove old storage directories before adopting version 3; old data is not reinterpreted. The version-3 implementation is now active.
 
 Named types use package-qualified identities where available; unnamed type identities use Go's structural `reflect.Type.String()` fallback and are not guaranteed stable across code changes. Channel and stream identity strings are composed by the helpers in `type_identity.go`.
+
+
+## 14. Live-stream integration is intentionally deferred
+
+The typed persistence adapter is currently exercised by private tests, but it is not called by `Stream.Publish` or by `EventChannel` lifecycle code. This is intentional: connecting disk writes to the live-stream path would define observable behavior that the current API does not specify.
+
+Before adding an internal production caller, decide and test the contract for:
+
+- **Ordering:** whether an event is persisted before live delivery, after live delivery, or through a separate queue; and how persisted sequence order relates to subscriber-observed order under concurrent publishers.
+- **Failure handling:** whether storage errors reject publication, stop the stream, or are surfaced through a separate health/error channel. Live delivery cannot be silently treated as successful persistence.
+- **Backpressure:** whether a slow disk writer blocks publishers, queues work, or rejects events; any queue must have a defined bound and loss policy.
+- **Lifecycle ownership:** who opens, flushes, syncs, rotates, and closes the writer, and how multiple event streams share or separate storage directories.
+- **Recovery and replay:** how records map to registered typed streams, what happens for unknown identities or payload decode failures, and whether replay is isolated from normal Publish to avoid re-persisting historical events.
+
+Until these decisions have an explicit contract and focused tests, keep the adapter private and do not wire disk I/O implicitly into `Publish`. The low-level storage implementation remains available for internal development and is not production-integrated.
