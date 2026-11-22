@@ -16,6 +16,14 @@ func TestErrorStreamRoutesTerminalCauseOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	businessSub, err := business.Subscribe(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer businessSub.Close()
+	if err := business.Publish(newTestEvent(t, errorStreamTestPayload{Value: "fills business buffer"})); err != nil {
+		t.Fatal(err)
+	}
 	errorsStream, err := channel.Errors(1)
 	if err != nil {
 		t.Fatal(err)
@@ -25,6 +33,9 @@ func TestErrorStreamRoutesTerminalCauseOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer sub.Close()
+	if got := cap(sub.sub.ch); got != 2 {
+		t.Fatalf("ErrorStream subscriber capacity = %d, want buffer plus reserved slot (2)", got)
+	}
 
 	cause := errors.New("injected disk failure")
 	channel.storageWriteFailed(cause)
