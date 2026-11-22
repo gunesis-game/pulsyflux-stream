@@ -20,6 +20,11 @@ Implement terminal asynchronous persistence-failure propagation through channel-
 ## Constraints and design context
 Follow the approved architecture and ErrorStream requirements in `steering.md`. Error notifications are system events and must never be persisted. The shared writer failure fan-out is owner-based and deduplicated, not registry-based. ErrorStream is channel-owned and exposed through `Errors(bufferSize)`; subscriptions use the normal Subscribe interface. One terminal failure notification per affected channel, with reserved delivery capacity. Preserve cause wrapping. Channel close must not prematurely close ErrorStream before ownership release and failure routing.
 
+## Persisted execution phase
+- **Current phase:** IMPLEMENT
+- **Why:** The objective, architecture, scope, ordered tasks, and acceptance criteria are already specified. The next useful work is to validate the current source/tests and then make the ErrorStream implementation changes; do not restart assessment or expand planning without new evidence.
+- **Phase exit:** A coherent implementation and its tests are ready for the VERIFY phase. Failed verification returns to IMPLEMENT with a concrete correction.
+
 ## Ordered work
 1. Re-validate the current writer, channel, stream, event, and storage tests against the current repository.
 2. Implement terminal writer-failure routing and channel-owned ErrorStream lifecycle.
@@ -42,4 +47,7 @@ Follow the approved architecture and ErrorStream requirements in `steering.md`. 
 - Cycle status is marked complete only after these criteria are verified.
 
 ## Progress
-- [ ] Steps 1–7
+- [ ] Step 1 — revalidate current source and tests
+- [ ] Steps 2–7 — implement, test, remove obsolete API/registry, reconcile docs, verify Linux/Windows CI and coverage
+
+Progress is updated as work is completed. The registry `current_phase` is authoritative; this section records the operational checkpoint.
