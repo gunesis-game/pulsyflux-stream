@@ -5,11 +5,6 @@ import (
 	"sync"
 )
 
-// EventChannel is a logical grouping identity for a family of related streams.
-// Every stream registered with a channel shares its TStream type context.
-type streamSchemaIdentityProvider interface {
-	defaultSchemaIdentity() (schemaIdentity, error)
-}
 
 type EventChannel[TStream any] struct {
 	mu      sync.RWMutex
