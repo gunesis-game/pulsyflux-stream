@@ -257,7 +257,9 @@ func TestAsyncDiskWriterAppendFailureWakesBlockedSubmittersAndNotifiesOwners(t *
 		t.Fatal(err)
 	}
 	blocked := make(chan error, 1)
-	go func() { blocked <- writer.Submit(asyncWriterItem{owner: ownerC, timestamp: time.Now(), payload: []byte("blocked")}) }()
+	go func() {
+		blocked <- writer.Submit(asyncWriterItem{owner: ownerC, timestamp: time.Now(), payload: []byte("blocked")})
+	}()
 	select {
 	case err := <-blocked:
 		t.Fatalf("blocked producer returned before failure: %v", err)
