@@ -14,7 +14,7 @@ type asyncWriterOwner interface {
 
 type asyncWriterItem struct {
 	owner           asyncWriterOwner
-	channelIdentity  string
+	channelIdentity string
 	streamIdentity  string
 	timestamp       time.Time
 	payload         []byte
@@ -34,7 +34,7 @@ type asyncDiskWriter struct {
 	closeErr   error
 	batchSize  int
 	flushEvery time.Duration
-	flushDue  bool
+	flushDue   bool
 }
 
 func newAsyncDiskWriter(disk *diskWriter, queueSize, batchSize int, flushEvery time.Duration) (*asyncDiskWriter, error) {
