@@ -188,7 +188,7 @@ func (w *asyncDiskWriter) fail(err error, owners map[asyncWriterOwner]struct{}) 
 			owners[item.owner] = struct{}{}
 		}
 	}
-	clear(w.queue)
+	w.queue = nil
 	w.cond.Broadcast()
 	w.mu.Unlock()
 	for owner := range owners {
