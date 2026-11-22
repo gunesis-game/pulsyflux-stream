@@ -6,6 +6,7 @@ import (
 )
 
 type EventChannel[TStream any] struct {
+	publishMu      sync.Mutex
 	mu             sync.RWMutex
 	streams        map[reflect.Type]any
 	closed         bool
@@ -33,6 +34,8 @@ func (channel *EventChannel[TStream]) Close() error {
 	if channel == nil {
 		return nil
 	}
+	channel.publishMu.Lock()
+	defer channel.publishMu.Unlock()
 	channel.mu.Lock()
 	if channel.closed {
 		channel.mu.Unlock()
