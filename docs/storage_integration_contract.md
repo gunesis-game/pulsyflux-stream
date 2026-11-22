@@ -1,6 +1,6 @@
 # Internal Persistence Integration Contract (Draft)
 
-> Status: async private writer and Publish persistence are implemented and verified. ErrorStream terminal-failure routing and additional stress tests remain incomplete. Replay is deliberately deferred.
+> Status: async private writer and Publish persistence are implemented and verified. ErrorStream terminal-failure routing and additional stress tests remain incomplete. Replay is deliberately deferred. The owned ErrorStream API boundary is resolved: `EventChannel.Errors(bufferSize)` returns its typed error stream; consumers subscribe with the ordinary `Subscribe(ctx)` API without receiving the internal error channel.
 
 ## Goals
 
@@ -58,6 +58,7 @@ Replay is explicitly outside the first persistence integration. Do not implement
 
 - **Ordering:** queue admission must preserve Publish acceptance order. Live delivery follows successful queue admission; disk append occurs asynchronously in accepted order.
 - **Failure behavior:** validation and slow-subscriber preflight failures happen before queue admission and live delivery. A fatal asynchronous disk failure may occur after Publish returned and live delivery happened; the writer becomes terminal and reports the first failure to each distinct channel represented in the failed batch or pending queue through that channel's internal ErrorStream delivery path. Each queue item carries a private owner reference; no global channel registry is introduced. Future persisted Publish calls return an error wrapping the terminal cause and emit the channel-local error notification.
+- **ErrorStream access:** each EventChannel owns one internal error channel and lazily exposes only its typed `*Stream[ErrorStream, StreamWriteErrorEvent]` via `Errors(bufferSize)`. This avoids returning the internal `EventChannel[ErrorStream]` while preserving the regular `Subscribe(ctx)` subscription API. Implementation and tests remain pending.
 - **Backpressure:** bounded queue; when full, Publish waits for capacity. Batch writes are triggered by a size threshold or short maximum delay. Exact thresholds are private implementation details.
 - **Ownership:** all storage remains private. One process-wide writer is shared by active EventChannels; the shared manager tracks only active ownership count, not a registry of channels. Each channel Close marks that channel closed and releases its writer ownership; the writer remains alive while other channels are active. The final owner Close stops queue admission, drains accepted queue work, flushes buffered writes, closes the writer, and returns the resulting shutdown error. The writer does not call Sync unless a separately supported durability operation requests it; strict directory-entry durability remains unsupported. Channel error streams must remain open until writer shutdown/error notification routing completes, then close with the channel's other streams. No multi-process lock.
 - **Replay:** deferred entirely. It must not block the first persistence integration.
