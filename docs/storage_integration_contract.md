@@ -69,7 +69,8 @@ Replay is explicitly outside the first persistence integration. Do not implement
 - [x] Define async write-error reporting: terminal writer failure, first cause retained, queued-owner error fan-out, and subsequent persisted publishes fail.
 - [x] Define private writer sharing and shutdown: active-owner count, per-channel release, final-owner drain/flush/close, and keep channel ErrorStreams open through failure notification. Storage remains private and event-record-only.
 - [x] Defer replay from initial persistence integration; reader filtering/routing and replay lifecycle will be handled as a separate task.
-- [ ] Add tests for ordering under concurrent publishers, slow subscribers (no orphan persisted record), storage failure (no live delivery), redaction, no subscribers, queue backpressure, terminal writer error fan-out, per-channel Close while other owners remain, final-owner drain/flush/close and Close idempotency. Replay tests are deferred.
+- [x] Async-writer foundation tests: sequential record order, drain on Close, idempotent Close, payload copy at admission, and deduplicated owner failure notification.
+- [ ] Integration tests: ordering under concurrent publishers, slow subscribers (no orphan persisted record), terminal storage failure (no live delivery), redaction, no subscribers, queue backpressure, terminal writer error fan-out through internal ErrorStreams, per-channel Close while other owners remain, final-owner drain/flush/close. Replay tests are deferred.
 
 ## Non-goals
 
