@@ -4,6 +4,7 @@
 Implement terminal asynchronous writer-failure routing through channel-owned ErrorStreams, then remove the obsolete stream registry and `Get()` API.
 
 ## Current Repository State
+- **Persisted lifecycle phase:** IMPLEMENT (matches `cycle-index.json`).
 - Repository: `gunesis-game/pulsyflux-stream`
 - Branch: `main`
 - This cycle is in progress. The latest reviewed checkpoint describes the private async writer and shared writer ownership as implemented; independently confirm current files and tests before relying on that summary.
@@ -30,8 +31,13 @@ Implement terminal asynchronous writer-failure routing through channel-owned Err
 - Ensure terminal-failure fan-out deduplicates owners and covers affected queued records.
 - Validate docs against implementation.
 
+## Current Phase Checkpoint
+- **Phase:** IMPLEMENT
+- **Exit condition:** A coherent ErrorStream/failure-routing implementation with focused tests is ready for VERIFY.
+- **Backward transition rule:** Return to DEFINE only if source inspection or tests demonstrate a real contradiction with the approved architecture or a missing requirement. Ordinary implementation choices are resolved autonomously.
+
 ## Next Task
-Re-validate the current source and tests, then implement terminal writer-failure routing and the channel-owned ErrorStream with tests. Remove `Get()`/the retrieval-only registry in the coherent follow-up within this cycle.
+Re-validate the current source and tests, then implement terminal writer-failure routing and the channel-owned ErrorStream with tests. Remove `Get()`/the retrieval-only registry in the coherent follow-up within this cycle. When the implementation checkpoint is coherent, transition the registry and this handoff to VERIFY; do not stop at another plan-only checkpoint.
 
 ## Acceptance Criteria
 See the cycle `plan/PLAN.md`. Do not mark complete until all criteria and required CI/coverage verification are satisfied.
