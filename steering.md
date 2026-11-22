@@ -61,12 +61,12 @@ Maintain a small, typed, concurrency-safe Go event-stream library. Keep the live
 
 ## Current handoff (2026-11-22)
 
-- Repo: `gunesis-game/pulsyflux-stream`, branch `main`.
-- Latest main HEAD: `802186215388f337cb13941fce6ea256d8b53f27` (docs-only README link commit; preceded by design docs `bf75c9ec` and storage integration audit `0430f064`).
-- Latest code SHA: `c9e0d705e4f43a3cc1dec599d785f33591984207`. Exact CI run [44967119308](https://github.com/gunesis-game/pulsyflux-stream/actions/runs/44967119308) passed Windows and Linux: format, race-enabled tests/coverage, vet, build. Aggregate statement coverage was 86.6% on both platforms. Exact-SHA per-function comparison still needs extraction; the preceding code run 44966913051 had matching coverage for all 54 functions.
-- Private typed adapter `appendEvent[TStream,TEvent]` validates Event/policy, requires set data, redacts payload, derives type identities, and persists creation time. Tests verify metadata, redaction round-trip, and failure cases. It remains private and not wired into Publish/channel lifecycle.
-- Audit confirms live Publish validates, preflights subscribers atomically under stream mutex, then delivers; EventChannel.Close marks closed and releases channel mutex before closing streams. There is no storage lifecycle owner or replay dispatch API.
-- Storage docs were updated with an explicit integration deferral: `docs/storage_disk.md` section 14. README links the disk docs, type identity docs, and new `docs/storage_integration_contract.md`.
-- Draft contract proposes synchronous persist-before-live-delivery, no append on slow subscribers, storage failure blocking delivery, no async queue, per-stream sink ownership, and replay separate from Publish. This is **proposal only**; semantics and open replay/backpressure questions remain unapproved. No public API added and no production wiring.
-- Next task: review the contract's trade-offs and settle ordering/error/backpressure/lifecycle/replay decisions. Then implement private integration and focused tests only after the decisions are coherent. Extract exact-SHA coverage artifacts and compare per-function Windows/Linux.
-- Worktree: changes committed; no uncommitted work known.
+- Repository: `gunesis-game/pulsyflux-stream`, branch `main`. Latest HEAD before this steering update: `01d9a7a08342258f958757b19c4510d508bc0430`.
+- Latest code SHA: `c9e0d705e4f43a3cc1dec599d785f33591984207`. CI run [44967119308](https://github.com/gunesis-game/pulsyflux-stream/actions/runs/44967119308) passed Linux and Windows: format, race tests/coverage, vet, build. Aggregate statement coverage was 86.6% on each OS. Per-function coverage comparison for this run is still unextracted.
+- Private `appendEvent[TStream,TEvent]` validates event/policy, requires payload set, serializes/redacts, derives type identities, and persists event creation time. Tests cover metadata, redaction round-trip, and failure cases. Not wired into `Publish` or channel lifecycle.
+- Live `Publish` currently validates and preflights subscribers under stream mutex, then delivers the original event. EventChannel.Close marks closed and releases its mutex before closing streams. No writer lifecycle owner or replay dispatch exists.
+- Storage v3 documentation: `docs/storage_disk.md`, `docs/type_identity.md`. Section 14 explicitly defers live persistence integration. README now links the new `docs/storage_integration_contract.md`.
+- Integration contract draft recommends persist-before-delivery, synchronous backpressure/no queue, storage failure blocking delivery, per-stream sink, and startup-only replay separate from Publish. Replay may be deferred from first integration. It is design-only, no API/production wiring.
+- Next: decide whether persistence/replay belongs in this package at all. If proceeding, implement only after contract decisions are accepted; first candidate is private sink attachment and deterministic Publish tests. Also retrieve and compare exact-SHA per-function coverage Linux/Windows, beyond aggregate 86.6%.
+- Acceptance: no public API without authorization; CI green on every code SHA; disk architecture docs match implementation; private integration contract clearly labeled draft; checkpoint updated after work.
+- Working state: committed changes, no uncommitted files known.
