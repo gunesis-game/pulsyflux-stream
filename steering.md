@@ -73,6 +73,33 @@ This status is authoritative for all work in this repository:
 - Because the writer is shared process-wide, a fatal writer failure is fanned out to the distinct EventChannel owners represented in the failed batch and pending queue. Queue items carry a private owner reference used only for error routing; owners are deduplicated per failure. This is not a global channel registry. A channel with a later persisted Publish after terminal failure receives the terminal error through that Publish path and its channel-local error stream.
 - Error-stream lifetime is scoped to its owning EventChannel. Close remains idempotent; channel Close must keep internal error streams available until writer ownership release and any failure notifications are routed, then close all streams/subscriptions. Final-owner Close returns drain/flush/close errors; no explicit Sync guarantee is made.
 
+## AI agent development lifecycle (MANDATORY)
+
+This steering file is an operating instruction for AI agents working in this repository, not merely project notes or a handoff summary. When the user asks to develop, fix, implement, continue, or make progress, execute this lifecycle autonomously.
+
+### Default end-to-end workflow
+1. **Orient:** Read this file first. Check current branch and HEAD, recent commits, relevant source, tests, docs, and applicable CI workflow. Treat handoff notes as clues and verify them against current repository state.
+2. **Select work:** Choose the next incomplete task from the current handoff/milestone list. Respect architecture and scope. If the user says "continue", do not restart the review or ask what to do next when the next task is documented.
+3. **Define acceptance:** Privately establish concrete acceptance criteria and edge cases. Ask the user only if a genuinely blocking ambiguity or authorization issue exists; routine implementation choices are yours to make within the approved architecture.
+4. **Implement:** Make real code changes. Prefer the smallest coherent, production-quality change that completes the selected task. Do not substitute a plan, analysis, summary, or list of suggestions for implementation when repository tools can perform it.
+5. **Test:** Run appropriate tests and checks locally when an execution environment exists. If local execution is unavailable, do not pretend tests ran; use the project's CI as the verification environment.
+6. **Review:** Inspect the actual diff and relevant call paths. Review API shape, errors, concurrency/races, lifecycle/cleanup, edge cases, security/privacy, documentation and test coverage. Do not rely only on a generated summary.
+7. **Repair loop:** If checks, review, or CI reveal defects, fix them and repeat the relevant verification. Continue until checks pass or a specific blocker is identified.
+8. **Commit/push:** Follow repository branch rules and commit finished coherent work. Do not commit unfinished, knowingly broken changes. Unless project instructions or user requests say otherwise, work on the designated branch (here: `main`).
+9. **CI verification:** For every code commit, identify the workflow run for that exact commit SHA, wait for completion, and inspect jobs/results/logs. If it fails, diagnose and repair. Never infer verification from another SHA or from partial results.
+10. **Coverage/reporting:** Where CI provides coverage, compare required platform reports and inspect meaningful gaps; do not game coverage with artificial tests.
+11. **Steering handoff:** After a verified milestone, update this file in a separate documentation-only commit with the real checkpoint (current HEAD, code SHA, exact CI run, checks, coverage, risks, and next concrete task/acceptance criteria). Keep handoff concise and current; remove stale instructions.
+12. **Continue intelligently:** When the user says "continue" or requests ongoing progress, proceed to the next actionable milestone after finishing the current one, repeating this lifecycle. Do not stop after merely updating the handoff or reporting what could be done next.
+
+### When to stop or ask
+Stop only for a genuine blocker: missing credentials/permissions, external dependency unavailable, destructive or irreversible action requiring explicit approval, a material ambiguity that changes architecture or user intent, or tool/runtime limitations that prevent further work. Report the precise blocker and the work already completed. Do not ask for permission for routine code edits, tests, review, commits, pushes, or CI inspection already authorized by the project/user.
+
+### Truthful status
+Distinguish **implemented**, **locally tested**, **CI verified**, **committed**, and **pushed**. Only claim each status when supported by actual tool results. If a verification step is unavailable, state which one and why, and attempt the best permitted alternative. Never mark a milestone complete while its acceptance criteria remain unmet.
+
+### User-facing updates
+Be concise and action-oriented. Give a short update when useful, then do the work. Avoid repeatedly asking whether to proceed, re-stating plans, or ending with an offer to do the very next task when the user has already asked to continue.
+
 ## Development rules
 - Work directly on `main`; do not create branches unless explicitly requested. Use GitHub MCP for repository operations; cloning is unnecessary.
 - Before editing, check current main HEAD, recent commits, relevant files/tests/docs and CI. Do not trust stale handoffs.
