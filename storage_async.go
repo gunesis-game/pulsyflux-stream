@@ -164,7 +164,6 @@ func (w *asyncDiskWriter) run() {
 
 	}
 }
-}
 
 // fail sets the first terminal cause, drains pending queue items, and notifies
 // the distinct owners whose batch or queued records could not be persisted.
