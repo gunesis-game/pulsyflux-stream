@@ -443,3 +443,19 @@ The typed persistence adapter and asynchronous queue are not yet called by `Stre
 - **Replay:** explicitly deferred and not part of the initial integration.
 
 The low-level storage and async-queue components remain private and are not yet persistence-integrated.
+
+
+## 15. Private shared writer manager (foundation only)
+
+`storage_manager.go` introduces a private `sharedWriterManager` with process-wide singleton `processWriterManager`. It tracks active-owner count only and does not maintain an EventChannel registry. The private storage root resolves to `<cwd>/pulsyflux-stream-data`; the manager resolves the path to an absolute location.
+
+
+### Ownership behavior
+
+- The first acquisition opens the private disk writer and starts its bounded async worker.
+- Further acquisitions for the same absolute root share the same writer and increment the owner count.
+- An acquisition for a different root while the writer is active is rejected without changing ownership.
+- Each acquisition receives an idempotent release closure. A non-final release leaves the writer active; the final release clears manager state and drains, flushes, and closes the writer.
+- After final release, a later acquisition creates a fresh writer instance against the root, recovering the existing segment sequence.
+
+This manager is tested independently. It is **not yet wired into EventChannel construction or Close**, and Publish is not yet connected to async persistence. Those are the next integration tasks.
