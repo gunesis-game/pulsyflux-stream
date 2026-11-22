@@ -383,6 +383,7 @@ These are the rules that the implementation and its tests are protecting.
 | `scanDiskRecords` | Startup recovery scan |
 | `appendEvent[TStream,TEvent]` | Event validation, serialization/redaction, type identities, creation timestamp; private typed persistence boundary |
 | `diskWriter` / `openDiskWriter` | Append, rotation, recovery, flush, sync, close |
+| `asyncDiskWriter` / `newAsyncDiskWriter` | Bounded queue, ordered worker, batching, failure routing and drain-close (not yet live-integrated) |
 | `diskSegments` / `segmentNum` | Segment discovery and naming rules |
 | `diskReader` / `openDiskReader` | Sequential multi-segment reader |
 | `readDiskRecord` | One-frame reader |
@@ -413,16 +414,32 @@ Because this project is not live or in production, record layouts may change inc
 Named types use package-qualified identities where available; unnamed type identities use Go's structural `reflect.Type.String()` fallback and are not guaranteed stable across code changes. Channel and stream identity strings are composed by the helpers in `type_identity.go`.
 
 
-## 14. Live-stream integration is intentionally deferred
+## 14. Private asynchronous writer queue (foundation only)
 
-The typed persistence adapter is currently exercised by private tests, but it is not called by `Stream.Publish` or by `EventChannel` lifecycle code. This is intentional: connecting disk writes to the live-stream path would define observable behavior that the current API does not specify.
+`storage_async.go` introduces an internal `asyncDiskWriter` around `diskWriter`. It serializes file access through one worker and uses a bounded queue. The current component is a foundation only: it is tested independently but is not yet connected to `Stream.Publish`, `EventChannel` construction/Close, the shared writer owner-count manager, or the internal ErrorStream.
 
-Before adding an internal production caller, decide and test the contract for:
 
-- **Ordering:** whether an event is persisted before live delivery, after live delivery, or through a separate queue; and how persisted sequence order relates to subscriber-observed order under concurrent publishers.
-- **Failure handling:** whether storage errors reject publication, stop the stream, or are surfaced through a separate health/error channel. Live delivery cannot be silently treated as successful persistence.
-- **Backpressure:** whether a slow disk writer blocks publishers, queues work, or rejects events; any queue must have a defined bound and loss policy.
-- **Lifecycle ownership:** who opens, flushes, syncs, rotates, and closes the writer, and how multiple event streams share or separate storage directories.
-- **Recovery and replay:** how records map to registered typed streams, what happens for unknown identities or payload decode failures, and whether replay is isolated from normal Publish to avoid re-persisting historical events.
+### Current queue behavior
 
-Until these decisions have an explicit contract and focused tests, keep the adapter private and do not wire disk I/O implicitly into `Publish`. The low-level storage implementation remains available for internal development and is not production-integrated.
+- Queue capacity is fixed at construction and admission blocks while the queue is full, using a condition variable to wait for space. This bounds queued items and applies backpressure.
+- Payload bytes are copied at admission, so caller mutation after `Submit` cannot change queued data.
+- The worker appends records in queue order, flushing when the batch size is reached or when the idle flush interval wakes it. `Close` stops admission, drains accepted records, flushes, and closes the underlying disk writer.
+- A terminal failure retains the first error, clears pending queue items, wakes blocked producers, and notifies each distinct owner represented by the current unflushed batch and queued items. Owner references are queue-local routing data; no global channel registry is present.
+- The first tests cover accepted-item ordering, draining on Close, repeated Close, payload-copy behavior, and deduplicated owner failure notification. Storage-failure injection, saturation/backpressure, concurrent producers, and lifecycle integration remain untested.
+
+This component does not yet implement the process-wide writer manager or channel ownership counting. Its constructor is private and receives a private `diskWriter`; this is not a public storage API.
+
+
+## 15. Live-stream integration is still pending
+
+The typed persistence adapter and asynchronous queue are not yet called by `Stream.Publish` or `EventChannel` lifecycle code. The next integration stage must follow the approved contract in `docs/storage_integration_contract.md` and add focused tests for:
+
+
+- **Ordering:** preserve accepted queue order and ensure live delivery follows successful queue admission.
+- **Failure handling:** preflight failure must not queue or deliver; terminal disk failure rejects future persisted publishes and routes the underlying cause to affected channel ErrorStreams.
+- **Backpressure:** bounded queue blocks producers without unbounded memory growth.
+- **Lifecycle ownership:** process-wide writer owner count; individual Close releases; final Close drains/flushes/closes; ErrorStreams remain open until routing completes.
+- **Redaction:** only redacted copies are queued; live payloads remain unchanged.
+- **Replay:** explicitly deferred and not part of the initial integration.
+
+The low-level storage and async-queue components remain private and are not yet persistence-integrated.
