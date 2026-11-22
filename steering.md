@@ -94,11 +94,13 @@ This status is authoritative for all work in this repository:
 
 ## Current handoff (2026-11-22)
 
-- Repository `gunesis-game/pulsyflux-stream`, main. Re-read latest files and CI before further coding.
-- Code baseline SHA `a0ba628ba37d414f05642a6ce2001b5083ef8e94`: async writer, private shared manager, EventChannel ownership, and Publish persistence integrated. Publish validates/preflights, redacts, bounded-admits, then delivers live. Zero-subscriber persistence supported; slow subscribers reject before persistence.
-- Added concurrent Publish stress test commit `6e0724e79cc9c54a7d23df3f098e6d9533a276bb` (64 concurrent no-subscriber Publish calls; test expects each accepted event persisted exactly once). **CI run 45004327392 is pending/in progress; verify before claiming success.**
-- Latest previous code CI run `45004091710` passed Linux and Windows format, race tests/coverage, vet, and build.
-- Docs contract was reconciled in commit `2741f59bef57410dd660e033d8db73f71345126a`; it no longer says Publish persistence is unintegrated.
-- Remaining milestone: ErrorStream system event/API and writer terminal failure fan-out, followed by remove map registry and `Get()` (architecturally disallowed), queue saturation/backpressure stress, concurrent subscription/close stress, and coverage profile comparison.
-- Keep storage private, no channel/stream persisted entities, type-derived identity, no UUID for channel/stream, no schema fingerprint framework. Replay deferred. No version/release bumps.
-- Working state: Publish persistence tests for redaction/no-subscriber and slow-subscriber behavior exist. Concurrent producer stress test added, verification pending.
+- Repo: `gunesis-game/pulsyflux-stream`, branch `main`.
+- Latest code commit: `ef0af7645e366591e5f3b50d7371055500459c9a`. Concurrent Publish persistence test: 64 simultaneous producers with no subscribers; accepted records persisted exactly once.
+- Exact-SHA CI run `45004383109` passed on Linux and Windows: formatting, race tests/coverage, vet, build, and coverage artifact upload. Initial CI failure was cleanup step HTTP 502 only; rerun passed and test jobs completed successfully.
+- Coverage comparison from that exact CI: Linux and Windows both **82.4% aggregate statement coverage**, and per-file/function coverage reports match. Raw profiles differ only in hit counts from concurrency/workload variability (e.g. queue wait and disk operation counts), not coverage percentage.
+- Documentation corrections committed after CI: `02cc2f3f04df3669ce94184156917e8271a39e59` (README API/persistence description) and `2614f61b12695336991f1536b6f1dde4fcecbd48` (integration-contract checkpoint). Documentation-only commits were not CI-tested.
+- Implemented: private async bounded writer, process-wide shared writer with active-owner count, channel writer ownership, redacted persisted Publish, zero-subscriber persistence, slow-subscriber preflight, and concurrent-producer persistence test.
+- Remaining code milestone: internal per-EventChannel ErrorStream and terminal disk failure routing. Design must resolve the generic typing boundary without a separate ErrorChannel implementation or global registry. Also pending: removal of public `Get()` and channel stream map, queue saturation/backpressure and lifecycle/failure stress tests.
+- Current risks: `storageWriteFailed` only stores the first terminal cause; it does not yet publish an error event. Public channel map/`Get()` contradict steering and must be removed coherently. README API examples were corrected in a docs commit but not yet CI-tested.
+- Next task: design and implement ErrorStream owner-local failure fan-out, with reserved error subscriber capacity independent of business buffers; test terminal injected write/flush failure, cause preservation (`errors.Is`/`errors.As`), deduplicated owner notification, and that system notifications bypass persistence. Then run exact-SHA CI and compare coverage.
+- No release/version bump; replay remains deferred. Storage disk documentation should be reviewed against current implementation during next code milestone.
