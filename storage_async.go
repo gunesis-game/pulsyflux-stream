@@ -13,28 +13,28 @@ type asyncWriterOwner interface {
 }
 
 type asyncWriterItem struct {
-	owner asyncWriterOwner
-	channelIdentity string
-	streamIdentity string
-	timestamp time.Time
-	payload []byte
+	owner           asyncWriterOwner
+	channelIdentity  string
+	streamIdentity  string
+	timestamp       time.Time
+	payload         []byte
 }
 
 // asyncDiskWriter serializes disk I/O behind a bounded private queue.
 type asyncDiskWriter struct {
-	disk *diskWriter
-	mu sync.Mutex
-	cond *sync.Cond
-	queue []asyncWriterItem
-	capacity int
-	closed bool
-	failure error
-	done chan struct{}
-	closeOnce sync.Once
-	closeErr error
-	batchSize int
+	disk       *diskWriter
+	mu         sync.Mutex
+	cond       *sync.Cond
+	queue      []asyncWriterItem
+	capacity   int
+	closed     bool
+	failure    error
+	done       chan struct{}
+	closeOnce  sync.Once
+	closeErr   error
+	batchSize  int
 	flushEvery time.Duration
-	flushDue bool
+	flushDue  bool
 }
 
 func newAsyncDiskWriter(disk *diskWriter, queueSize, batchSize int, flushEvery time.Duration) (*asyncDiskWriter, error) {
