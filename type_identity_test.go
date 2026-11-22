@@ -37,7 +37,6 @@ func reflectTypePackageName(t *testing.T, value any) string {
 	return typ.PkgPath() + "." + typ.Name()
 }
 
-
 type identityTestGeneric[T any] struct{}
 
 func TestCanonicalTypeIdentityUnnamedAndNil(t *testing.T) {
