@@ -75,56 +75,56 @@ This status is authoritative for all work in this repository:
 
 ## AI agent development lifecycle (MANDATORY)
 
-This steering file is an operating instruction for AI agents working in this repository, not merely project notes or a handoff summary. When the user asks to develop, fix, implement, continue, or make progress, execute this lifecycle autonomously.
+This steering file is the mandatory operating protocol for AI development. Execute it autonomously whenever asked to develop, fix, implement, continue, or make progress. The lifecycle is one engineering cycle at a time, with cycle-specific planning and handoff documents.
 
-### Default end-to-end workflow
-1. **Orient:** Read this file first. Check current branch and HEAD, recent commits, relevant source, tests, docs, and applicable CI workflow. Treat handoff notes as clues and verify them against current repository state.
-2. **Select work:** Choose the next incomplete task from the current handoff/milestone list. Respect architecture and scope. If the user says "continue", do not restart the review or ask what to do next when the next task is documented.
-3. **Define acceptance:** Privately establish concrete acceptance criteria and edge cases. Ask the user only if a genuinely blocking ambiguity or authorization issue exists; routine implementation choices are yours to make within the approved architecture.
-4. **Implement:** Make real code changes. Prefer the smallest coherent, production-quality change that completes the selected task. Do not substitute a plan, analysis, summary, or list of suggestions for implementation when repository tools can perform it.
-5. **Test:** Run appropriate tests and checks locally when an execution environment exists. If local execution is unavailable, do not pretend tests ran; use the project's CI as the verification environment.
-6. **Review:** Inspect the actual diff and relevant call paths. Review API shape, errors, concurrency/races, lifecycle/cleanup, edge cases, security/privacy, documentation and test coverage. Do not rely only on a generated summary.
-7. **Repair loop:** If checks, review, or CI reveal defects, fix them and repeat the relevant verification. Continue until checks pass or a specific blocker is identified.
-8. **Commit/push:** Follow repository branch rules and commit finished coherent work. Do not commit unfinished, knowingly broken changes. Unless project instructions or user requests say otherwise, work on the designated branch (here: `main`).
-9. **CI verification:** For every code commit, identify the workflow run for that exact commit SHA, wait for completion, and inspect jobs/results/logs. If it fails, diagnose and repair. Never infer verification from another SHA or from partial results.
-10. **Coverage/reporting:** Where CI provides coverage, compare required platform reports and inspect meaningful gaps; do not game coverage with artificial tests.
-11. **Steering handoff:** After a verified milestone, update this file in a separate documentation-only commit with a human-readable checkpoint: milestone, changes, verification summary, coverage comparison if relevant, risks, and next concrete task/acceptance criteria. **Never include commit hashes, SHA values, Git object IDs, CI run IDs, or other machine-specific identifiers in this file.** Retrieve those from GitHub when needed. Keep handoff concise and current; remove stale instructions.
-12. **Continue intelligently:** When the user says "continue" or requests ongoing progress, proceed to the next actionable milestone after finishing the current one, repeating this lifecycle. Do not stop after merely updating the handoff or reporting what could be done next.
+### Lifecycle document system
+The lifecycle registry and cycle documents are authoritative for cycle selection and continuity:
+- Registry: `docs/dev-life-cycle/cycle-index.json`
+- Each cycle is identified by a UUID and owns `docs/dev-life-cycle/<UUID>/plan/PLAN.md` and `docs/dev-life-cycle/<UUID>/handoff/HANDOFF.md`.
+- The index is the only source for cycle status and queue order. Do not infer active status from directory names, timestamps, commit history, or chat.
+- Allowed statuses are `pending`, `in-progress`, and `complete`. At most one cycle may be `in-progress`.
+- Array order in `cycles` represents pending-cycle priority. Do not reorder without a reason.
+- UUIDs must be unique and valid. Each indexed cycle must have its required directory and documents. Descriptions must be concise but understandable without opening the plan.
+- Do not create parallel cycles or work on multiple cycles simultaneously.
 
-### When to stop or ask
-Stop only for a genuine blocker: missing credentials/permissions, external dependency unavailable, destructive or irreversible action requiring explicit approval, a material ambiguity that changes architecture or user intent, or tool/runtime limitations that prevent further work. Report the precise blocker and the work already completed. Do not ask for permission for routine code edits, tests, review, commits, pushes, or CI inspection already authorized by the project/user.
+### Start-of-cycle protocol
+1. Read this steering file before taking action.
+2. Read and validate `cycle-index.json`; check JSON validity, UUID uniqueness, allowed statuses, required files, and the single-in-progress invariant.
+3. If exactly one cycle is `in-progress`, resume it. Do not create a new cycle merely because a new AI session begins.
+4. If no cycle is `in-progress`, select the first `pending` cycle by index order and start it by changing its status to `in-progress`.
+5. If no pending cycle exists, assess the repository's actual needs and determine a logical next objective. Cycle creation/autonomy must follow any specific user direction and project policy; if the governing decision is unclear, discuss the next objective before creating it. Do not invent a cycle solely to keep busy.
+6. For the selected UUID, read its `PLAN.md` and `HANDOFF.md` (if present/initialized). Validate their claims against the current branch, repository contents, relevant tests, and CI. Treat handoff as a checkpoint, not unquestionable truth.
+7. Continue from the next actionable task; do not repeat completed investigation without new evidence.
 
-### Truthful status
-Distinguish **implemented**, **locally tested**, **CI verified**, **committed**, and **pushed**. Only claim each status when supported by actual tool results. If a verification step is unavailable, state which one and why, and attempt the best permitted alternative. Never mark a milestone complete while its acceptance criteria remain unmet.
+### Plan phase — required for every cycle
+Read `docs/dev-life-cycle/<UUID>/plan/PLAN.md` and validate the plan against the repository. A plan must define the objective, problem, scope and non-goals, relevant context/design, dependencies and risks, ordered tasks, acceptance criteria, and progress. Before implementation, identify a clear task and testable completion criteria. Revise the plan when new evidence or completed work warrants it; preserve the objective unless a justified scope change is recorded. Avoid needless planning churn and do not replace implementation with planning when the task is actionable.
 
-### User-facing updates
-Be concise and action-oriented. Give a short update when useful, then do the work. Avoid repeatedly asking whether to proceed, re-stating plans, or ending with an offer to do the very next task when the user has already asked to continue.
+### Execute and verify
+- Make real, coherent engineering progress. Choose normal technical details autonomously within the approved architecture; ask only for genuinely blocking ambiguity, conflicting requirements, credentials, or authorization.
+- Implement tests with code. Update docs when behavior or architecture changes. Avoid unrelated refactors, unnecessary dependencies, placeholders, knowingly broken code, or weakening tests to force a pass.
+- Run targeted and full checks locally when tooling exists. If local execution is unavailable, use CI as the verification environment. Distinguish implemented, locally tested, CI-verified, committed, and pushed states.
+- Review the actual diff and call paths, including API shape, concurrency/races, lifecycle/cleanup, edge cases, security/privacy, docs, and tests. Repair defects and repeat verification.
+- Commit coherent, reviewed changes directly to `main`, unless the user explicitly directs otherwise. Do not commit unfinished or knowingly broken work.
+- For every code commit, identify CI associated with that exact commit, wait for completion, inspect job results/steps/logs, diagnose and fix failures. Never infer success from another commit or missing/partial runs.
+- Storage changes require Linux and Windows CI. Preserve formatting checks, race-enabled tests, vet, build, coverage, and artifact upload. CI formatting must be non-mutating and report offending files.
+- Verify formatting, `go test -race -coverprofile=coverage.out ./...`, `go vet ./...`, and `go build ./...` through exact-commit CI before claiming verified. Do not claim local Go checks unless actually run.
+- After CI, compare Linux and Windows aggregate statement coverage and per-function coverage from the same run. Explain differences and inspect profiles if needed. Do not add artificial tests to equalize coverage.
+- Do not trigger manually controlled release CI unless explicitly requested.
 
-## Development rules
-- Work directly on `main`; do not create branches unless explicitly requested. Use GitHub MCP for repository operations; cloning is unnecessary.
-- Before editing, check current main HEAD, recent commits, relevant files/tests/docs and CI. Do not trust stale handoffs.
-- Implement coherent changes, commit directly to main, and review the diff.
-- After each code push, identify CI for that exact commit SHA. Wait for completion and inspect conclusion, jobs, steps and logs; never infer success from missing/partial/unrelated runs.
-- Disk-storage changes require Linux and Windows CI. Preserve formatting verification, race-enabled tests, vet, build, coverage and artifact upload. Do not weaken checks.
-- After completed CI, compare Linux/Windows aggregate statement coverage and per-function coverage from the same run. Explain discrepancies; inspect profiles for statement-level attribution if needed. Do not add artificial tests just to equalize percentages.
-- CI formatting must be non-mutating and report offending files.
-- Verify formatting, `go test -race -coverprofile=coverage.out ./...`, `go vet ./...`, and `go build ./...` through exact-SHA CI before claiming verified. No local Go execution is claimed unless actually run.
-- Do not trigger manually controlled release CI unless explicitly asked.
-- After CI analysis, update this file in a separate docs-only commit, including the human-readable checkpoint and next task. Never put commit hashes, SHA values, Git object IDs, or CI run IDs in steering.md; look them up from GitHub when needed. Markdown-only changes are not CI-tested.
-- Keep verified facts separate from assumptions and open decisions. Do not claim unverified work is tested or pushed.
+### Handoff phase — mandatory before stopping a cycle/session
+Update `docs/dev-life-cycle/<UUID>/handoff/HANDOFF.md` with the latest factual checkpoint, even when work is interrupted or unsuccessful. Include: cycle objective/status, current repository state, completed changes, important decisions/constraints, verification evidence and failures/not-run checks, outstanding issues/risks, the next specific task and acceptance criteria, and whether relevant storage documentation reflects the implementation. Keep it concise and operational, not a transcript. Clearly identify uncommitted/unpushed work.
+Update `cycle-index.json` when cycle status changes. Keep the plan progress and handoff coherent. A session ending does not complete a cycle; mark `complete` only after every plan acceptance criterion is satisfied and verified. If abandoning a cycle, update status explicitly and explain the reason—never silently discard or bypass it.
+Do not create multiple handoff files for one cycle; the single `HANDOFF.md` is the current checkpoint and Git history preserves prior edits.
 
-## Handoff hygiene
-- This file is the durable source of truth, not a chat transcript. Maintain one concise current handoff in place.
-- Once a handoff is resolved, remove it. Move lasting workflow rules here and substantial technical design into canonical `docs/` files; do not preserve history in this file.
-- Handoff records repo/branch, milestone/checkpoint, verification and coverage comparison, changes, risks/open decisions, next task and acceptance criteria, and whether `docs/storage_disk.md` matches implementation. Do not include any commit SHA/hash or CI run identifier.
-- If interrupted, state exact stopping point and uncommitted/unpushed state. Never present unverified work as done.
+### Cycle completion
+Before marking a cycle complete: review the final diff, verify all acceptance criteria, complete required CI and coverage analysis, resolve or explicitly document remaining issues, update the plan, finalize the handoff, and change the registry status to `complete`. Only then may the next pending cycle be started. Do not claim completion with unmet or unverified criteria.
 
-## Current handoff (2026-11-22)
+### Truthful status and cycle integrity
+- Keep verified facts separate from assumptions/open decisions. Report precise blockers rather than vague inability.
+- Never mark work complete just because the session ended or code was committed.
+- Do not silently create, switch, reorder, abandon, or concurrently pursue cycles.
+- Never include commit hashes, SHA values, Git object IDs, CI run IDs, or other machine-specific identifiers in `steering.md` or cycle plan/handoff prose. Retrieve identifiers from GitHub when needed.
+- If tools cannot edit/run/verify a task, make the best permitted progress and state the limitation truthfully; don't invent results.
 
-- Repository: `gunesis-game/pulsyflux-stream`, branch `main`.
-- Current checkpoint: documentation clarifies README, storage integration contract, and the owned ErrorStream API boundary. These documentation-only updates are not CI-tested.
-- Latest verified code milestone: private async bounded writer, process-wide shared writer with active-owner count, channel writer ownership, redacted persisted Publish, zero-subscriber persistence, slow-subscriber preflight, and concurrent-producer persistence test.
-- Verification at the latest code milestone: Linux and Windows CI passed formatting, race-enabled tests/coverage, vet, build, and artifact upload. Aggregate statement coverage was 82.4% on both platforms; per-file/function reports matched.
-- Remaining milestone: implement ErrorStream terminal failure routing with reserved system-error capacity, then remove `Get()` and the stream registry in a coherent lifecycle change. Preserve prompt subscription closure on EventChannel.Close without adding a replacement lookup registry.
-- Next task: implement ErrorStream as a channel-owned internal system stream exposed only through `Errors(bufferSize)`; route terminal writer failure to affected EventChannel owners once, bypass persistence, preserve cause for `errors.Is/As`, and test terminal injected failures. Then remove `Get()` and the map registry using channel close signaling. Run CI and compare coverage.
-- No release/version bump; replay remains deferred. Review `docs/storage_disk.md` against implementation during the code milestone.
+### User-facing communication
+Be concise and action-oriented. Briefly report useful milestones, not repeated plans/status. Do not ask the user to authorize routine implementation, tests, review, commits, pushes, or CI inspection already permitted. When the user says "continue", keep progressing through the lifecycle rather than stopping after planning or handoff updates.
