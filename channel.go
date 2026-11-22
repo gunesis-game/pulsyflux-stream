@@ -22,8 +22,8 @@ func NewEventChannel[TStream any]() (*EventChannel[TStream], error) {
 		return nil, err
 	}
 	return &EventChannel[TStream]{
-		streams: make(map[reflect.Type]any),
-		writer: writer,
+		streams:       make(map[reflect.Type]any),
+		writer:        writer,
 		releaseWriter: release,
 	}, nil
 }
@@ -81,8 +81,8 @@ func register[TStream, TEvent any](channel *EventChannel[TStream], bufferSize in
 		return nil, ErrDuplicateStream
 	}
 	stream := &Stream[TStream, TEvent]{
-		channel: channel,
-		subs: make(map[uint64]*subscriber[TEvent]),
+		channel:    channel,
+		subs:       make(map[uint64]*subscriber[TEvent]),
 		bufferSize: bufferSize,
 	}
 	channel.streams[eventType] = stream
