@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"testing"
+	"sync"
 )
 
 type persistenceTestChannel struct{}
@@ -148,5 +149,92 @@ func TestPublishSlowSubscriberRejectionDoesNotPersist(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("persisted record count = %d, want 1", count)
+	}
+}
+
+type concurrentPublishChannel struct{}
+type concurrentPublishEvent struct {
+	Value int `json:"value"`
+}
+
+func TestConcurrentPublishPersistsAllAcceptedEvents(t *testing.T) {
+	const publishCount = 64
+	channel, err := NewEventChannel[concurrentPublishChannel]()
+	if err != nil {
+		t.Fatalf("NewEventChannel: %v", err)
+	}
+	stream, err := New[concurrentPublishChannel, concurrentPublishEvent](channel, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var wg sync.WaitGroup
+	errs := make(chan error, publishCount)
+	for i := 0; i < publishCount; i++ {
+		wg.Add(1)
+		go func(value int) {
+			defer wg.Done()
+			event, err := NewEvent[concurrentPublishEvent](NewRedactionPolicy())
+			if err != nil {
+				errs <- err
+				return
+			}
+			if err := event.SetData(concurrentPublishEvent{Value: value}); err != nil {
+				errs <- err
+				return
+			}
+			errs <- stream.Publish(event)
+		}(i)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Errorf("concurrent Publish: %v", err)
+		}
+	}
+	if err := channel.Close(); err != nil {
+		t.Fatalf("Close to flush: %v", err)
+	}
+
+	dir, err := privateStorageRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader, err := openDiskReader(dir)
+	if err != nil {
+		t.Fatalf("open persisted reader: %v", err)
+	}
+	defer reader.Close()
+	seen := make(map[int]bool, publishCount)
+	count := 0
+	for {
+		record, err := reader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("read record: %v", err)
+		}
+		if record.ChannelIdentity != channelTypeIdentity[concurrentPublishChannel]() ||
+			record.StreamIdentity != streamTypeIdentity[concurrentPublishChannel, concurrentPublishEvent]() {
+			continue
+		}
+		var got concurrentPublishEvent
+		if err := json.Unmarshal(record.Payload, &got); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		if got.Value < 0 || got.Value >= publishCount {
+			t.Errorf("unexpected event value %d", got.Value)
+			continue
+		}
+		if seen[got.Value] {
+			t.Errorf("duplicate event value %d", got.Value)
+		}
+		seen[got.Value] = true
+		count++
+	}
+	if count != publishCount {
+		t.Errorf("persisted %d events, want %d", count, publishCount)
 	}
 }
