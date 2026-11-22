@@ -459,3 +459,11 @@ The low-level storage and async-queue components remain private and are not yet 
 - After final release, a later acquisition creates a fresh writer instance against the root, recovering the existing segment sequence.
 
 This manager is tested independently. It is **not yet wired into EventChannel construction or Close**, and Publish is not yet connected to async persistence. Those are the next integration tasks.
+
+
+## EventChannel storage ownership checkpoint
+
+`NewEventChannel[TStream]()` now acquires the private process-wide writer and returns `(*EventChannel[TStream], error)`, so storage initialization errors are explicit without exposing a store or path. `EventChannel.Close()` now returns the final-owner drain/flush/close error; it closes owned streams before releasing the writer, and remains idempotent. A channel stores only its writer handle and idempotent release closure, not a storage configuration. The test helper ensures channel Close runs even when a test also explicitly closes it.
+
+
+**Important:** writer ownership is wired into channel construction/Close, but `Stream.Publish` is not yet enqueueing persisted records. ErrorStream routing is also pending.
