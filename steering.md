@@ -22,6 +22,14 @@ This status is authoritative:
 
 Do not add code/architecture documentation here. When a durable decision is made or revised, update its appropriate document in `docs/` and link to it from this file only if helpful.
 
+## Git workflow and branch policy (MANDATORY)
+
+- Work directly on `main` at all times. Do not create, switch to, push, or use feature, fix, development, review, or other branches unless the user explicitly instructs you to.
+- Before editing, confirm the current branch is `main` and inspect its latest state. If the environment is not on `main`, use an available repository workflow to operate on `main); do not create a branch as a workaround.
+- Commit coherent, reviewed implementation checkpoints directly to `main). Commits are the remote execution checkpoints for CI, not proof that the code works.
+- Keep commits purposeful and testable. Do not commit knowingly broken, unfinished, or incoherent fragments merely to trigger CI. If an implementation is not yet ready for a meaningful checkpoint, continue editing and reviewing before committing.
+- Never use branch creation as a default safety mechanism. The direct-to-main workflow is intentional for this pre-production repository.
+
 ## AI agent development lifecycle (MANDATORY)
 
 Execute this protocol autonomously whenever asked to develop, fix, implement, continue, or make progress. Work one engineering cycle at a time; cycles are not AI sessions or commits.
@@ -53,13 +61,30 @@ Execute this protocol autonomously whenever asked to develop, fix, implement, co
 
 A cycle plan must specify objective, problem, scope/non-goals, relevant context/design, dependencies and risks, ordered tasks, testable acceptance criteria, and progress. Validate it against repository reality before implementation. Identify a clear next task and criteria; revise the plan when evidence or completed work requires it. Avoid planning churn when implementation is actionable.
 
+### Remote Git/CI execution loop — mandatory when local execution is unavailable
+
+The Git workflow and CI are an engineering feedback loop that allows the AI to verify and improve its own committed implementation. Do not treat CI as a passive final gate.
+
+1. Implement a coherent change and add/update tests. Review the diff and ensure it is a meaningful checkpoint.
+2. Commit directly to `main` (see the branch policy above). The commit triggers the configured CI workflows that execute the committed code.
+3. Identify CI runs associated with that exact commit, wait for them to finish, and inspect all relevant jobs, steps, logs, test results, coverage reports, and uploaded artifacts.
+4. Analyze failures or unexpected results. Make the necessary source/test corrections; do not merely report failures.
+5. Commit the correction to `main`, wait for the new exact-commit CI runs, and repeat the review-and-correction loop.
+6. Continue this loop until required checks pass and acceptance criteria are objectively verified, or until a genuine blocker remains that cannot be overcome with available repository/CI capabilities.
+
+- If local tooling is available, run checks locally before committing where practical; local checks do not replace required CI.
+- If local tooling is unavailable, use remote CI as the execution environment. This is the preferred recovery path, not an excuse to stop.
+- If a CI workflow is missing, broken, does not trigger, or cannot provide a required check, investigate whether the workflow can be repaired within the cycle. Do not claim a check passed without evidence.
+- A commit is only a test checkpoint. It is not evidence of quality, correctness, or completion by itself.
+- If remote CI cannot execute or its results cannot be accessed after reasonable attempts, continue any other meaningful work, document the specific limitation, and pause only when it is a genuine blocker—not merely because local execution is unavailable.
+
 ### Execute and verify
 
 - Make coherent engineering progress. Decide routine technical details autonomously within approved architecture; escalate genuinely blocking ambiguity, conflicting requirements, credentials, authorization, destructive actions, or major strategic decisions.
 - Implement tests with code. Update focused docs when behavior, contracts, architecture, or operating procedures change. Avoid unrelated refactors, unnecessary dependencies, placeholders, broken code, or weakened tests.
 - Run targeted and full checks locally when tooling exists. If unavailable, use CI. Clearly distinguish implemented, locally tested, CI-verified, committed, and pushed.
 - Review the actual diff and call paths, including API shape, concurrency/races, lifecycle/cleanup, edge cases, security/privacy, documentation, and tests. Fix defects and repeat verification.
-- Commit coherent, reviewed changes directly to `main`, unless user directs otherwise. Do not commit unfinished or knowingly broken work.
+- Commit coherent, reviewed changes directly to `main`. Do not create or switch branches unless explicitly instructed by the user. Do not commit unfinished or knowingly broken work.
 - For every code commit, identify CI for that exact commit, wait for completion, inspect jobs/steps/logs, diagnose and fix failures. Do not infer success from another commit or incomplete runs.
 - Storage changes require Linux and Windows CI. Preserve formatting, race tests, vet, build, coverage, and artifact upload. Formatting CI must be non-mutating and identify offending files.
 - Verify via exact-commit CI: formatting, `go test -race -coverprofile=coverage.out ./...`, `go vet ./...`, and `go build ./...`. Do not claim checks ran locally unless they did.
