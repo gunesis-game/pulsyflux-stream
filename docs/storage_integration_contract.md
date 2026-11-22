@@ -32,11 +32,11 @@ This changes the durability meaning of Publish: successful Publish means the eve
 | Subscriber buffer full | `ErrSlowSubscriber`; no queue admission or delivery |
 | Writer queue full | Apply bounded backpressure; wait for queue capacity |
 | Queue admission succeeds | Deliver live event; disk append may happen later |
-| Asynchronous disk write fails | Report through a library error mechanism; exact mechanism and subsequent-writer behavior remain undecided |
+| Asynchronous disk write fails | Writer enters terminal failed state; notify each distinct channel represented by the failed batch and queued records, once per failure; preserve the first cause |
 | No subscribers | Persist-enabled Publish still queues the event |
 | No persistence enabled | Keep live-only Publish behavior |
 
-The writer must preserve accepted record order. A disk failure can occur after Publish has returned and live delivery has happened, so it cannot be represented solely as a Publish return error and cannot undo live delivery. The library's asynchronous error-reporting mechanism, whether the writer stops accepting new records after a fatal error, and how queued records are handled on failure remain open decisions.
+The writer must preserve accepted record order. A disk failure can occur after Publish has returned and live delivery has happened, so it cannot be represented solely as a Publish return error and cannot undo live delivery. On a fatal write failure, the shared writer enters a terminal failed state and preserves the first underlying cause. It reports the failure through the private ErrorStream path for each distinct EventChannel owner represented in the failed batch and the remaining queued records; owners are deduplicated for the failure. Each queued record carries a private, non-persisted owner reference solely for this routing. This does not create a global channel registry. Queued records that cannot be written are not silently discarded as successful persistence; they are rejected/drained as failed work and subsequent persisted Publish calls return an error wrapping the terminal cause.
 
 ## Ownership/lifecycle proposal
 
@@ -57,18 +57,18 @@ The remaining product/API decisions are whether replay should be exposed at all 
 ## Current contract decisions and remaining proposals
 
 - **Ordering:** queue admission must preserve Publish acceptance order. Live delivery follows successful queue admission; disk append occurs asynchronously in accepted order.
-- **Failure behavior:** validation and slow-subscriber preflight failures happen before queue admission and live delivery. An asynchronous disk failure may occur after Publish returned and live delivery happened; it must be reported through a library error mechanism that is not yet designed.
+- **Failure behavior:** validation and slow-subscriber preflight failures happen before queue admission and live delivery. A fatal asynchronous disk failure may occur after Publish returned and live delivery happened; the writer becomes terminal and reports the first failure to each distinct channel represented in the failed batch or pending queue through that channel's internal ErrorStream delivery path. Each queue item carries a private owner reference; no global channel registry is introduced. Future persisted Publish calls return an error wrapping the terminal cause and emit the channel-local error notification.
 - **Backpressure:** bounded queue; when full, Publish waits for capacity. Batch writes are triggered by a size threshold or short maximum delay. Exact thresholds are private implementation details.
-- **Ownership:** all storage remains private. Writer owner/sharing scope, close behavior, queue drain, and final flush/sync behavior remain undecided. No multi-process lock.
+- **Ownership:** all storage remains private. One process-wide writer is shared by active EventChannels; the shared manager tracks only active ownership count, not a registry of channels. Each channel Close marks that channel closed and releases its writer ownership; the writer remains alive while other channels are active. The final owner Close stops queue admission, drains accepted queue work, flushes buffered writes, closes the writer, and returns the resulting shutdown error. The writer does not call Sync unless a separately supported durability operation requests it; strict directory-entry durability remains unsupported. Channel error streams must remain open until writer shutdown/error notification routing completes, then close with the channel's other streams. No multi-process lock.
 - **Replay:** separate startup-only path; never invokes Publish or append; deliver by stored sequence; stop on unknown type, identity mismatch, corrupt frame, or payload decode error. The initial integration may omit replay until lifecycle and buffer strategy are fully specified.
 - **Durability:** successful Publish means queue acceptance, not disk persistence. A crash may lose queued or unflushed records. Flush and Sync are separate; strict directory-entry durability is unsupported on both CI platforms.
 
 ## Decision checklist before wiring
 
 - [x] Agree asynchronous bounded batching: Publish queues before live delivery; a private writer batches records; queue-full applies backpressure; successful Publish is not a durability guarantee.
-- [ ] Define asynchronous write-error reporting and writer behavior after a disk failure.
-- [ ] Define private writer ownership/sharing, flush/sync, shutdown drain behavior, and the library's private storage-root policy. The design must operate on event records only; no channel/stream entity records or catalogs. Never expose the store or its location/configuration as public API.
-- [ ] Define how the reader filters/routes event records by embedded channel/stream identity, and decide whether replay is included in the first integration or deferred.
+- [x] Define async write-error reporting: terminal writer failure, first cause retained, queued-owner error fan-out, and subsequent persisted publishes fail.
+- [x] Define private writer sharing and shutdown: active-owner count, per-channel release, final-owner drain/flush/close, and keep channel ErrorStreams open through failure notification. Storage remains private and event-record-only.
+- [x] Defer replay from initial persistence integration; reader filtering/routing and replay lifecycle will be handled as a separate task.
 - [ ] Add tests for ordering under concurrent publishers, slow subscribers (no orphan persisted record), storage failure (no live delivery), redaction, no subscribers, Close, and replay non-reappend.
 
 ## Non-goals
