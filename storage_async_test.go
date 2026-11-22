@@ -3,8 +3,8 @@ package stream
 import (
 	"encoding/json"
 	"errors"
-	"sync"
 	"io"
+	"sync"
 	"testing"
 	"time"
 )
@@ -95,7 +95,7 @@ func TestAsyncDiskWriterCloseIsIdempotent(t *testing.T) {
 }
 
 type asyncWriterTestOwner struct {
-	mu sync.Mutex
+	mu       sync.Mutex
 	failures []error
 }
 
@@ -127,7 +127,7 @@ func TestAsyncDiskWriterCopiesPayloadAtAdmission(t *testing.T) {
 		channelIdentity: "channel",
 		streamIdentity:  "stream",
 		timestamp:       time.Now(),
-		payload:          payload,
+		payload:         payload,
 	}); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
