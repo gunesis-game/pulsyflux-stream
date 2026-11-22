@@ -10,9 +10,9 @@ import (
 
 const (
 	asyncQueueCapacity = 256
-	asyncBatchSize    = 32
+	asyncBatchSize     = 32
 	asyncFlushInterval = 25 * time.Millisecond
-	privateStorageDir = "pulsyflux-stream-data"
+	privateStorageDir  = "pulsyflux-stream-data"
 )
 
 // sharedWriterManager owns one private async writer and counts active EventChannel
