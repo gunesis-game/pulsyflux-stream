@@ -82,7 +82,7 @@ No public storage configuration/API, automatic recovery migration, cross-process
 `storage_manager.go` now provides a private process-wide `sharedWriterManager` and `acquireProcessWriter()`. The manager tracks active owners only (no EventChannel registry), shares one writer for the same absolute storage root, rejects conflicting roots while active, and returns idempotent release functions. The final owner release drains, flushes, and closes the writer; a later acquisition creates a new writer instance. The manager's behavior is covered by `storage_manager_test.go` and exact-SHA CI.
 
 
-**Still pending:** `NewEventChannel`/EventChannel Close must acquire/release ownership with explicit constructor error propagation; typed Publish must preflight, redacted-encode, queue-admit, and then deliver live; ErrorStream creation and failure fan-out must be wired; integration tests for queue saturation, concurrent publishers, lifecycle and injected failures remain. This checkpoint does not imply persistence is active for public Publish calls.
+**Completed:** `NewEventChannel`/EventChannel Close acquire/release shared ownership with explicit constructor error propagation; typed Publish preflights, redacted-encodes, queue-admits, then delivers live. **Still pending:** ErrorStream creation/failure fan-out; queue saturation, concurrent publishers, lifecycle and injected failure stress tests.
 
 
 ## EventChannel ownership wiring checkpoint
