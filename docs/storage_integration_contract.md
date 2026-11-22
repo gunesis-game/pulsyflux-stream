@@ -1,6 +1,6 @@
 # Internal Persistence Integration Contract (Draft)
 
-> Status: architecture decisions approved; implementation not yet integrated. This document is the contract for the first private async persistence integration. Replay is deliberately deferred.
+> Status: async private writer and Publish persistence are implemented and verified. ErrorStream terminal-failure routing and additional stress tests remain incomplete. Replay is deliberately deferred.
 
 ## Goals
 
@@ -70,7 +70,8 @@ Replay is explicitly outside the first persistence integration. Do not implement
 - [x] Define private writer sharing and shutdown: active-owner count, per-channel release, final-owner drain/flush/close, and keep channel ErrorStreams open through failure notification. Storage remains private and event-record-only.
 - [x] Defer replay from initial persistence integration; reader filtering/routing and replay lifecycle will be handled as a separate task.
 - [x] Async-writer foundation tests: sequential record order, drain on Close, idempotent Close, payload copy at admission, and deduplicated owner failure notification.
-- [ ] Integration tests: ordering under concurrent publishers, slow subscribers (no orphan persisted record), terminal storage failure (no live delivery), redaction, no subscribers, queue backpressure, terminal writer error fan-out through internal ErrorStreams, per-channel Close while other owners remain, final-owner drain/flush/close. Replay tests are deferred.
+- [x] Concurrent producer integration test: 64 simultaneous no-subscriber Publish calls persist all accepted events exactly once, verified on Linux and Windows CI.
+- [ ] Integration tests still needed: terminal storage failure and ErrorStream fan-out, queue saturation/backpressure, per-channel Close while other owners remain, final-owner drain/flush/close stress. Replay tests are deferred.
 
 ## Non-goals
 
@@ -102,7 +103,7 @@ No public storage configuration/API, automatic recovery migration, cross-process
 - `storage_publish_test.go` covers redacted persistence without subscribers and no persistence for slow-subscriber rejection.
 - Exact source SHA `a0ba628ba37d414f05642a6ce2001b5083ef8e94` passed Linux and Windows CI run `45004091710`: formatting, race-enabled tests/coverage, vet, build. Coverage profiles have not yet been compared for this run.
 
-**Remaining:** ErrorStream API/ownership/failure fan-out; remove map registry and `Get()` per steering; stress tests for queue backpressure, concurrent producers and failure routing. Disk replay stays deferred.
+**Remaining:** ErrorStream API/ownership/failure fan-out; remove map registry and `Get()` per steering; stress tests for queue backpressure, lifecycle and failure routing. Concurrent producer stress is now verified. Disk replay stays deferred.
 
 
 ## Concurrent Publish test checkpoint (CI pending)
