@@ -25,8 +25,8 @@ Do not add code/architecture documentation here. When a durable decision is made
 ## Git workflow and branch policy (MANDATORY)
 
 - Work directly on `main` at all times. Do not create, switch to, push, or use feature, fix, development, review, or other branches unless the user explicitly instructs you to.
-- Before editing, confirm the current branch is `main` and inspect its latest state. If the environment is not on `main`, use an available repository workflow to operate on `main); do not create a branch as a workaround.
-- Commit coherent, reviewed implementation checkpoints directly to `main). Commits are the remote execution checkpoints for CI, not proof that the code works.
+- Before editing, confirm the current branch is `main` and inspect its latest state. If the environment is not on `main`, use an available repository workflow to operate on `main`; do not create a branch as a workaround.
+- Commit coherent, reviewed implementation checkpoints directly to `main`. Commits are the remote execution checkpoints for CI, not proof that the code works.
 - Keep commits purposeful and testable. Do not commit knowingly broken, unfinished, or incoherent fragments merely to trigger CI. If an implementation is not yet ready for a meaningful checkpoint, continue editing and reviewing before committing.
 - Never use branch creation as a default safety mechanism. The direct-to-main workflow is intentional for this pre-production repository.
 
