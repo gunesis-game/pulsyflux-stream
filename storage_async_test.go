@@ -27,8 +27,8 @@ func TestAsyncDiskWriterDrainsAcceptedItemsInOrder(t *testing.T) {
 		item := asyncWriterItem{
 			channelIdentity: "test-channel",
 			streamIdentity:  "test-stream",
-			timestamp: time.Now(),
-			payload: payload,
+			timestamp:       time.Now(),
+			payload:         payload,
 		}
 		if err := writer.Submit(item); err != nil {
 			t.Fatalf("submit record %d: %v", i, err)
