@@ -91,6 +91,12 @@ Redaction is owned by Event and applied to a serialized JSON copy when preparing
 
 Supported policy path traversal is limited to structs, pointers, and slices/arrays of structs. Map traversal and embedded-field flattening are not supported. Paths are exact JSON field names and are case-sensitive. A path must be resolvable; empty, duplicate, and malformed paths are rejected.
 
+### Private persistence internals
+
+The private disk writer stores version-3 records with type-derived channel and stream identities, event UUID, sequence, event-creation timestamp, and redacted payload. Version-2 and older records are rejected; there is no migration support or public persistence/replay API.
+
+See [disk storage architecture](docs/storage_disk.md) and [type-derived identity](docs/type_identity.md) for implementation details.
+
 ## Delivery semantics
 
 - Each active subscriber receives each successfully published event.
